@@ -9,7 +9,9 @@ require it unless a Skypilot environment is actually configured.
 import asyncio
 import glob
 import os
+import re
 import shlex
+import subprocess
 import urllib.parse
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Self, Tuple, Union
@@ -78,6 +80,41 @@ def _ensure_skypilot_api_running():
             "SkyPilot API server status=%s — starting it now", info.status.value
         )
         sky.api_start()
+
+
+def _refresh_ecr_docker_password(env_vars: Dict[str, str]) -> None:
+    """Refresh SKYPILOT_DOCKER_PASSWORD from AWS ECR if the docker server is ECR.
+
+    ECR tokens expire after 12 hours, so this must be called before each
+    SkyPilot launch to ensure the token is fresh. Only runs when
+    SKYPILOT_DOCKER_SERVER looks like an ECR endpoint.
+    """
+    server = env_vars.get("SKYPILOT_DOCKER_SERVER", "")
+    if not server or "ecr" not in server or "amazonaws.com" not in server:
+        return
+
+    # Extract region from ECR server URL (e.g. 022767362696.dkr.ecr.us-east-2.amazonaws.com)
+    match = re.search(r"ecr\.([a-z0-9-]+)\.amazonaws\.com", server)
+    region = match.group(1) if match else "us-east-2"
+
+    try:
+        result = subprocess.run(
+            ["aws", "ecr", "get-login-password", "--region", region],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            env_vars["SKYPILOT_DOCKER_PASSWORD"] = result.stdout.strip()
+            logger.info("Refreshed ECR docker password for region %s", region)
+        else:
+            logger.warning(
+                "Failed to refresh ECR docker password (rc=%d): %s",
+                result.returncode,
+                result.stderr.strip(),
+            )
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        logger.warning("Could not refresh ECR docker password: %s", e)
 
 
 @retry(
@@ -162,6 +199,106 @@ from gbserver.environment._skypilot_ssh import (
 )
 
 
+def _extract_aws_region(infra: str, zone: Optional[str] = None) -> Optional[str]:
+    """Extract the AWS region from SkyPilot infra/zone config.
+
+    Handles infra formats like 'aws/us-east-2', 'aws/us-east-2/us-east-2a',
+    or plain 'aws' with a separate zone like 'us-east-2a'.
+    """
+    parts = infra.split("/") if infra else []
+    if len(parts) >= 2 and parts[0].lower() == "aws":
+        candidate = parts[1]
+        if re.match(r"^[a-z]{2}-[a-z]+-\d+$", candidate):
+            return candidate
+    if zone:
+        # Zone like 'us-east-2a' -> region 'us-east-2'
+        match = re.match(r"^([a-z]{2}-[a-z]+-\d+)[a-z]?$", zone)
+        if match:
+            return match.group(1)
+    return None
+
+
+async def _query_aws_spot_instance_status(
+    cluster_name: str, region: str
+) -> Optional[Dict[str, Any]]:
+    """Query AWS for spot instance state/status given a SkyPilot cluster name.
+
+    Uses 'skypilot-cluster-name' tag to find the EC2 instance, then queries
+    the spot instance request for termination details.
+
+    Returns a dict with instance_id, instance_state, spot_state, and
+    spot_status, or None if the query fails or no instance is found.
+    """
+    try:
+        # Find instances by SkyPilot cluster name tag
+        result = await asyncio.to_thread(
+            subprocess.run,
+            [
+                "aws", "ec2", "describe-instances",
+                "--region", region,
+                "--filters",
+                f"Name=tag:skypilot-cluster-name,Values={cluster_name},{cluster_name}-*",
+                "--query",
+                "Reservations[].Instances[].[InstanceId,State.Name,SpotInstanceRequestId]",
+                "--output", "json",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            logger.warning(
+                "aws ec2 describe-instances failed (rc=%d): %s",
+                result.returncode,
+                result.stderr.strip(),
+            )
+            return None
+
+        import json
+        instances = json.loads(result.stdout.strip()) if result.stdout.strip() else []
+        if not instances:
+            return None
+
+        instance_id, instance_state, spot_request_id = instances[0]
+        info: Dict[str, Any] = {
+            "instance_id": instance_id,
+            "instance_state": instance_state,
+        }
+
+        if not spot_request_id:
+            return info
+
+        # Query spot instance request for detailed status
+        spot_result = await asyncio.to_thread(
+            subprocess.run,
+            [
+                "aws", "ec2", "describe-spot-instance-requests",
+                "--region", region,
+                "--spot-instance-request-ids", spot_request_id,
+                "--query",
+                "SpotInstanceRequests[0].{State:State,StatusCode:Status.Code,StatusMessage:Status.Message}",
+                "--output", "json",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if spot_result.returncode == 0 and spot_result.stdout.strip():
+            spot_info = json.loads(spot_result.stdout.strip())
+            if spot_info:
+                info["spot_state"] = spot_info.get("State")
+                info["spot_status_code"] = spot_info.get("StatusCode")
+                info["spot_status_message"] = spot_info.get("StatusMessage")
+
+        return info
+    except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError) as e:
+        logger.debug("Spot instance status query failed for %s: %s", cluster_name, e)
+        return None
+    except Exception as e:
+        logger.debug("Unexpected error querying spot status for %s: %s", cluster_name, e)
+        return None
+
+
 class Skypilot(Environment):
     """SkyPilot environment — provisions pods/VMs for step execution (unmanaged)."""
 
@@ -191,6 +328,10 @@ class Skypilot(Environment):
     ) -> None:
         self._cluster_names: Dict[str, str] = {}  # launch_id -> cluster_name
         self._job_ids: Dict[str, int] = {}  # launch_id -> sky job_id
+        # launch_ids whose provisioning completed successfully. Distinct from
+        # _cluster_names (populated earlier) — used by the monitor to detect
+        # instances stuck in INIT that never reach a pollable state.
+        self._provisioned: set = set()
         # launch_id -> relaunch attempt number. 0 (or absent) is the initial
         # launch; retry_workload bumps it so each relaunch provisions a fresh,
         # uniquely-named cluster instead of reusing the draining original.
@@ -198,6 +339,8 @@ class Skypilot(Environment):
         self._setup_workdirs: Dict[str, str] = {}  # setup_id -> per-run workdir
         # launch_id -> kwargs replayed by retry_workload
         self._launch_kwargs: Dict[str, Dict] = {}
+        # launch_id -> {"cloud": str, "region": str, "use_spot": bool}
+        self._launch_cloud_info: Dict[str, Dict[str, Any]] = {}
         self._skypilot_retry_complete_events: Dict[str, asyncio.Event] = {}
         # launch_id -> set the instant retry_workload begins (before stop_event),
         # so monitor_skypilot_monitor can distinguish a retry-induced poll stop
@@ -449,6 +592,8 @@ class Skypilot(Environment):
             env_vars.update(launcher_config.get("envs", {}))
             # Also pick up envs from config.launcher_config (for auto-queued steps)
             env_vars.update(config.get("launcher_config", {}).get("envs", {}))
+            # Refresh ECR docker password if needed (tokens expire after 12h)
+            _refresh_ecr_docker_password(env_vars)
             # Forward GBTEST_ test-control vars (e.g. GBTEST_MOCKED_HF_OPS) to the
             # remote run so hfpull/hfpush steps honor mocking on the cluster.
             env_vars.update(get_exported_gbtest_env_vars())
@@ -578,6 +723,13 @@ class Skypilot(Environment):
             no_autostop_clouds = ("slurm", "lsf")
             autostop = None if cloud_for_infra in no_autostop_clouds else idle_minutes
 
+            # Track cloud info for spot instance diagnostics on failure
+            self._launch_cloud_info[launch_id] = {
+                "cloud": cloud_for_infra or cloud,
+                "region": _extract_aws_region(infra or "", zone),
+                "use_spot": bool(res_config.get("use_spot")),
+            }
+
             # Launch and wait for provisioning, retrying transient
             # resource-acquisition failures (e.g. a just-torn-down slurm/lsf
             # allocation not yet released on retry). See _provision_with_retry.
@@ -586,6 +738,7 @@ class Skypilot(Environment):
             )
 
             self._cluster_names[launch_id] = cluster_name
+            self._provisioned.add(launch_id)
             if job_id is not None:
                 self._job_ids[launch_id] = job_id
 
@@ -1072,6 +1225,35 @@ class Skypilot(Environment):
                         start_line_num=lines_already_processed,
                     )
                 if str(status) != "JobStatus.SUCCEEDED":
+                    # Query spot instance status for AWS spot workloads
+                    spot_info_msg = ""
+                    cloud_info = self._launch_cloud_info.get(launch_id, {})
+                    if (
+                        cloud_info.get("use_spot")
+                        and cloud_info.get("cloud") == "aws"
+                        and cloud_info.get("region")
+                    ):
+                        spot_info = await _query_aws_spot_instance_status(
+                            cluster_name, cloud_info["region"]
+                        )
+                        if spot_info:
+                            spot_info_msg = (
+                                f" | Spot instance {spot_info.get('instance_id', 'unknown')}: "
+                                f"state={spot_info.get('instance_state', 'unknown')}"
+                            )
+                            if spot_info.get("spot_state"):
+                                spot_info_msg += (
+                                    f", spot_request_state={spot_info['spot_state']}"
+                                    f", status_code={spot_info.get('spot_status_code', '')}"
+                                    f", message={spot_info.get('spot_status_message', '')}"
+                                )
+                            logger.info(
+                                "Spot instance diagnostics for %s (launch_id=%s): %s",
+                                cluster_name,
+                                launch_id,
+                                spot_info,
+                            )
+
                     if event_q and entityrun_metadata:
                         from gbserver.types.buildevent import (
                             BuildEvent,
@@ -1088,10 +1270,23 @@ class Skypilot(Environment):
                             ),
                         )
                         await event_q.put(fail_event)
+                        if spot_info_msg:
+                            from gbserver.types.buildevent import (
+                                BuildEventMessagePayload,
+                            )
+
+                            spot_event = BuildEvent(
+                                run_metadata=entityrun_metadata,
+                                type=BuildEventType.MESSAGE_EVENT,
+                                payload=BuildEventMessagePayload(
+                                    msg=f"Spot instance status for {cluster_name}{spot_info_msg}"
+                                ),
+                            )
+                            await event_q.put(spot_event)
                     terminal_msg = (
                         f"SkyPilot job {job_id} on {cluster_name} "
                         f"terminated with status {status} "
-                        f"(launch_id={launch_id})"
+                        f"(launch_id={launch_id}){spot_info_msg}"
                     )
                     if defer_terminal_failure:
                         # A RetryHandler is active: hand the FAILED event off to
@@ -1320,6 +1515,7 @@ class Skypilot(Environment):
             self._cluster_names.pop(launch_id, None)
             self._job_ids.pop(launch_id, None)
             self._launch_kwargs.pop(launch_id, None)
+            self._launch_cloud_info.pop(launch_id, None)
             self._relaunch_attempts.pop(launch_id, None)
 
     async def retry_workload(

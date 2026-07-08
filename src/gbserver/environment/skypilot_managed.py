@@ -145,6 +145,10 @@ class Skypilot_managed(Environment):
             if self.secrets:
                 env_vars.update(self.secrets)
             env_vars.update(launcher_config.get("envs", {}))
+            # Refresh ECR docker password if needed (tokens expire after 12h)
+            from gbserver.environment.skypilot import _refresh_ecr_docker_password
+
+            _refresh_ecr_docker_password(env_vars)
             env_vars["GB_SKYPILOT_LAUNCH_ID"] = launch_id
             env_vars["GB_SKYPILOT_JOB_NAME"] = job_name
             # Expose run metadata so steps in the same target can share state
