@@ -22,7 +22,7 @@ fi
 # `dmf table delete --table <name>` first and DESTROY the shared registry.
 # NOTE: this only protects the lhpush path; the authoritative control is a lakehouse
 # ACL that denies write/delete on these tables to everyone but the publish identity.
-{{- if and (eq $lhtype "table") (has $table_name (list "model" "model_shared")) }}
+{{- if and (eq $lhtype "table") (has $table_name (list "model" "model_shared" "fileset" "fileset_shared")) }}
 echo "ERROR: '{{ $namespace }}.{{ $table_name }}' is a RESERVED shared-model table and must not be targeted by a 'table' push -- doing so would DELETE the shared registry. Rename the output table in your build.yaml." >&2
 exit 1
 {{- end }}
