@@ -586,6 +586,9 @@ granite.build:
               extra_env:
                 WML_READ_TIMEOUT: "900"
                 WML_TIMEOUT_RETRIES: "6"
+                # No `if __name__ == "__main__"` guard in these scripts, so spawn
+                # (the step default) re-runs them in vLLM's worker and aborts.
+                VLLM_WORKER_MULTIPROC_METHOD: fork
             compute_config:
               num_nodes: 1
               num_gpus_per_node: $${NUM_GPUS_PER_NODE}
