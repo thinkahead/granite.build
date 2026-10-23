@@ -61,21 +61,8 @@ and the fused-MoE A100 config copy.
 
 ## Image
 
-`/proj/granite-build/g4os/enroot/vllm-vllm-openai-v0.11.2-defense-eval.sqsh`
-(15 GB, built 2026-10-23, job 324830). To rebuild it:
-
-```bash
-srun -p gpu-high --qos=grp_granite_dot_build_high_1n --account=grp_granite_dot_build \
-  -c 16 --mem=64G --gres=gpu:1 --constraint=h200 -t 1:30:00 \
-  --container-image=vllm/vllm-openai:v0.11.2 \
-  --container-save=/proj/granite-build/g4os/enroot/vllm-vllm-openai-v0.11.2-defense-eval.sqsh \
-  --container-remap-root --container-writable --no-container-mount-home bash -c '
-python3 -m pip install --timeout=1200 --retries=10 pytz ibm-watsonx-ai==1.3.34 jsonschema-rs \
-  rouge-score==0.1.2 tabulate==0.9.0 unitxt==1.26.5 json_repair protobuf litellm==1.77.2.post1 \
-  vllm==0.11.2 peft
-python3 -m pip uninstall -y unitxt
-python3 -m pip install "unitxt@git+https://github.com/thinkahead/unitxt@c489d8c83eae090dbc1d4dd042f3eba1f57152a0"'
-```
-
-This is the Vela `command.sh` pip line, minus the GHE-only packages (`lakehouse-eval-api`,
-`dmf-lib`, `dmf-aspera`). `vllm==0.11.2` stays pinned, so pip doesn't move it.
+`/proj/granite-build/g4os/enroot/vllm-vllm-openai-v0.11.2-defense-eval.sqsh`:
+`vllm/vllm-openai:v0.11.2` plus the Vela eval pip line, saved as an enroot squashfs. How
+to rebuild and verify it, and what's in it, is in [`image/README.md`](image/README.md);
+the build script is [`image/build_eval_sqsh.sh`](image/build_eval_sqsh.sh)
+(`sbatch` on a login node). fm-eval itself isn't in the image; it's cloned per run.

@@ -2,3 +2,5 @@
 **/*.md
 # Ship the src/ tree verbatim — do not jinja-process step scripts/helpers.
 src/**
+# Image build tooling, run by hand on a login node; never part of a step run.
+image/**
