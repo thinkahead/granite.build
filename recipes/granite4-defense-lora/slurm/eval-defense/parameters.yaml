@@ -1,0 +1,45 @@
+# eval-defense (SLURM) — see build.yaml's header. Override any value with --param KEY=VALUE.
+
+# ─── What to evaluate ────────────────────────────────────────────────────
+# LoRA adapter dir (a run's final/ or checkpoint-N/). Default: the full 5000-step
+# sftlora-g42-3b run, build cd2bfbc2.
+ADAPTER_PATH: "/proj/granite-build/g4os/defense/runs/cd2bfbc2-f7f0-4252-a32d-119ea2c30d58/sftlora_g42_3b_v2_odm_90_10_entropy_xml/final"
+# Base the adapter was trained on (its adapter_config.json base_model_name_or_path).
+BASE_MODEL_PATH: "/proj/granite-build/g4os/kd-sandbox/model_copies/granite-4.2-3b"
+# Where the merged full model goes. Next to the adapter by default.
+MERGED_PATH: ""
+# The merge is skipped when MERGED_PATH (or the default merged_<adapter>/) already holds
+# a merge of this adapter + base made after the adapter was written. true => redo it.
+FORCE_MERGE: false
+# Label for the run; outputs go to <OUTPUT_ROOT>/<NAME>/<category>/.
+NAME: "eval_g42nt_lora_3b_cd2bfbc2_final"
+OUTPUT_ROOT: "/proj/granite-build/g4os/defense/evals"
+
+# ─── Eval code + data (same branch and data as Vela eval_g42nt_local.yaml) ─
+FM_EVAL_REF: "unitxt_benchmarks_local"
+DATA_PATH: "/proj/granite-build/g4os/defense/defense_evaldata/20260914T194533"
+
+# ─── Knowledge evals (watsonx llama-3.3-70b judge) ──────────────────────
+# Run custom_knowledge + custom_knowledge_with_tools too. false => 12 tool-calling only.
+KNOWLEDGE: true
+# Root holding the Lakehouse pulls knowledge_{validation,test}_set/<name>.parquet.
+KNOWLEDGE_DATA_PATH: "/proj/granite-build/g4os/defense"
+# `NAME: <base64>` lines with WATSONX_*/WML_* judge credentials, decoded in the job.
+WATSONX_CREDENTIALS_FILE: "/proj/granite-build/g4os/defense/keys"
+
+# ─── Topology and resources (per category target) ────────────────────────
+# Vela: 2 GPUs per category, VLLM_TP_SIZE=2.
+NUM_GPUS_PER_NODE: 2
+ACCELERATORS: "H200:2"
+GPU_CPUS: 16
+MEMORY: 128
+CLUSTER: "bluevela"
+QUEUE: "gpu-high"
+QOS: "grp_granite_dot_build_high_1n"
+TIME_LIMIT: "6:00:00"
+ENVIRONMENT_URI: "space://environments/skypilot/slurm/ibm-bluevela"
+
+# ─── Retries / monitoring ────────────────────────────────────────────────
+MAX_RETRIES: 1
+POLL_INTERVAL_SECONDS: 60
+LOG_RETRIEVAL_INTERVAL_SECONDS: 120

@@ -1,0 +1,86 @@
+name: lora-merge-slurm
+version: 1.0.0
+# Merge a PEFT LoRA adapter into its base model on BlueVela SLURM, producing a full
+# HF model dir that vLLM can serve. The BlueVela counterpart of the Vela
+# `/gb-read-write/karve/lora_merge/<run>_ckpt<N>_merged` dirs the defense evals were
+# pointed at (e.g. build e4f4bd58).
+#
+# Runs src/merge_lora.py (peft merge_and_unload, bf16 safetensors) in the
+# fms-hf-tuning image the adapter was trained in, so peft/transformers match the
+# trainer exactly. One GPU is plenty (a 3b merge is ~1 min; it also runs on CPU).
+type: custom
+config:
+  python: "/usr/bin/python3"
+  # Where to write the merged model. EMPTY => <adapter>/../merged_<adapter basename>,
+  # i.e. next to the checkpoint it came from.
+  output_dir: ""
+  dtype: "bfloat16"
+  # Re-merge even if output_dir already holds a merge of this adapter + base.
+  force: false
+  poll_interval_seconds: 60
+  log_retrieval_mode: periodic
+  log_retrieval_interval_seconds: 60
+  compute_config:
+    num_nodes: 1
+    num_gpus_per_node: 1
+
+inputs:
+  allow_unknown: true
+  required:
+    base_model:
+      type: model
+      accept: [uri, binding]
+    adapter:
+      type: model
+      accept: [uri, binding]
+
+outputs:
+  optional:
+    merged_model:
+      type: model
+
+environment_configs:
+  Skypilot:
+    subtypes:
+      - slurm
+    default_launcher: lora-merge
+    launchers:
+      lora-merge:
+        type: skypilot
+        monitors:
+          - skypilot_monitor
+        config:
+          image_id: "docker:/proj/granite-build/g4os/enroot/us.icr.io-cil15-shared-registry-fms-hf-tuning-6mar2026-a66092d5c01.sqsh"
+          resources: {}
+          file_mounts:
+            src: src
+          envs:
+            HF_HOME: /tmp/hf_home
+          run: |
+            BASE="{{ bindings.base_model.binding.path }}"
+            ADAPTER="{{ bindings.adapter.binding.path }}"
+            ADAPTER="${ADAPTER%/}"
+            OUT="{{ config.output_dir | string | trim }}"
+            [ -z "$OUT" ] && OUT="$(dirname "$ADAPTER")/merged_$(basename "$ADAPTER")"
+            # Skip when OUT is already a complete merge of THIS adapter + base, made after
+            # the adapter was last written (merge_lora.py publishes OUT atomically, with
+            # lora_merge_info.json, so its presence means the merge finished).
+            INFO="$OUT/lora_merge_info.json"
+            if [ "{{ 'yes' if config.force else '' }}" = "" ] && [ -f "$INFO" ] \
+               && [ "$INFO" -nt "$ADAPTER/adapter_model.safetensors" ] \
+               && "{{ config.python }}" -c 'import json,sys;d=json.load(open(sys.argv[1]));sys.exit(0 if (d["adapter"].rstrip("/"),d["base"].rstrip("/"))==(sys.argv[2],sys.argv[3].rstrip("/")) else 1)' "$INFO" "$ADAPTER" "$BASE"; then
+              echo "lora-merge: $OUT is already the merge of $ADAPTER + $BASE; skipping (force: true to redo)"
+            else
+              echo "lora-merge: $ADAPTER + $BASE -> $OUT on $(hostname)"
+              "{{ config.python }}" ./src/merge_lora.py --base "$BASE" --adapter "$ADAPTER" \
+                --out "$OUT" --dtype "{{ config.dtype }}"
+            fi
+            echo "GB_ARTIFACT_ID:merged_model GB_ARTIFACT_PATH:${OUT}"
+    monitors:
+      skypilot_monitor:
+        ref: space://monitors/skypilot
+        config:
+          poll_interval_seconds: "{{ config.poll_interval_seconds | default(60) }}"
+          log_retrieval:
+            mode: "{{ config.log_retrieval_mode | default('periodic') }}"
+            interval_seconds: "{{ config.log_retrieval_interval_seconds | default(60) }}"

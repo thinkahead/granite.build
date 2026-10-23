@@ -1,0 +1,196 @@
+name: defense-eval-slurm
+version: 1.0.0
+# Defense tool-calling eval (fm-eval `unitxt_benchmarks/defense`) with vLLM on BlueVela
+# SLURM, the same way the Vela `eval_g42nt_local.yaml` targets ran it via
+# space://steps/custom_code: clone karve/fm-eval@unitxt_benchmarks_local, apply the same
+# patches, then run
+#   env SYSTEM_PROMPT=none TEMPERATURE=0 TOP_P=1.0 PROVIDER=vllm VLLM_TP_SIZE=<tp>
+#       MODEL_NAME=<merged model> BATCH_SIZE=<n> OUTPUT_PATH=<dir>
+#       DATASET_NAMES=<a,b> TOOLS=<tools> python <script>
+# One target per category, as on Vela. What differs on BlueVela:
+#   * Image: a pre-staged vllm/vllm-openai:v0.11.2 squashfs with the Vela pip line baked
+#     in (unitxt fork, litellm, ...), instead of icr.io/rl4gb/custom-step:2 + a per-run
+#     pip install. Same vllm (0.11.2) as the Vela runs.
+#   * Data: DATA_PATH -> the /proj copy of /gb-read-write/karve/evaldata.
+#   * Scores: written to OUTPUT_PATH (result.jsonl, instance_scores.jsonl) by a local
+#     lh_eval_api stand-in (src/lh_shim) instead of being uploaded to the Lakehouse.
+#   * The model must be a FULL model dir: merge a LoRA adapter first (lora-merge-slurm).
+type: custom
+config:
+  python: "python3"
+  code_config:
+    repo: "github.ibm.com/karve/fm-eval"
+    ref: "unitxt_benchmarks_local"
+    workdir: "fm-eval"
+  # Vela: /gb-read-write/karve/evaldata
+  data_path: "/proj/granite-build/g4os/defense/defense_evaldata/20260914T194533"
+  # Root for this target's outputs. EMPTY => $GB_BUILD_WORKDIR/eval.
+  output_root: ""
+  # Subdirectory under output_root (normally the category name).
+  name: "eval"
+  eval_config:
+    script: "unitxt_benchmarks/defense/defense_unitxt_evaluation_with_profile.py"
+    dataset_names: ""
+    tools: ""
+    batch_size: 10
+    vllm_tp_size: 2
+    system_prompt: "none"
+    temperature: 0
+    top_p: 1.0
+    # Extra env vars for the eval script (e.g. MAX_SAMPLES, DUMP_PREDICTIONS, DUMP_TAG).
+    extra_env: {}
+  # Optional extra DATA_PATH root searched first for Lakehouse-named tables (the
+  # knowledge evals' knowledge_{validation,test}_set). Accepts <root>/<name>/<name>.parquet
+  # or <root>/<name>/<split>.parquet. EMPTY => only data_path.
+  knowledge_data_path: ""
+  # Optional file of `NAME: <base64 value>` lines (one per line) exported as env vars
+  # inside the job, decoded at run time on the compute node. The knowledge evals need
+  # the watsonx judge credentials (WML_* for unitxt's WML engine, WATSONX_*/WX_* for
+  # litellm). Values are never echoed. EMPTY => none.
+  credentials_file: ""
+  poll_interval_seconds: 60
+  log_retrieval_mode: periodic
+  log_retrieval_interval_seconds: 120
+  compute_config:
+    num_nodes: 1
+    num_gpus_per_node: 2
+  # Read-scoped GHE token for the private fm-eval clone, from the space/user secret
+  # GITHUB_IBM_PAT (standalone: the GBSERVER_SECRET_GITHUB_IBM_PAT env var).
+  skypilot:
+    secrets:
+      secret_names_to_use_as_env_variable:
+        - env_name: GB_SDK_GIT_PAT
+          secret_name: GITHUB_IBM_PAT
+
+inputs:
+  allow_unknown: true
+  required:
+    model:
+      type: model
+      accept: [uri, binding]
+
+outputs:
+  optional:
+    eval_results:
+      type: dataset
+
+environment_configs:
+  Skypilot:
+    subtypes:
+      - slurm
+    default_launcher: defense-eval
+    launchers:
+      defense-eval:
+        type: skypilot
+        monitors:
+          - skypilot_monitor
+        config:
+          # vllm/vllm-openai:v0.11.2 + the Vela eval pip line; built by the step README's
+          # "Image" recipe.
+          image_id: "docker:/proj/granite-build/g4os/enroot/vllm-vllm-openai-v0.11.2-defense-eval.sqsh"
+          resources: {}
+          file_mounts:
+            src: src
+          envs:
+            HF_HOME: /tmp/hf_home
+            VLLM_WORKER_MULTIPROC_METHOD: spawn
+            TOKENIZERS_PARALLELISM: "false"
+          run: |
+            WORK="${GB_BUILD_WORKDIR:-$PWD}"
+            PYBIN="{{ config.python }}"
+            export PYBIN
+
+            # vLLM's Triton path finds libcuda via the ldconfig cache, which the SLURM
+            # backend's separately-created container misses (same fix as vllm-server-slurm).
+            ldconfig 2>/dev/null || true
+            for _d in /usr/lib/x86_64-linux-gnu /usr/lib64; do
+              [ -e "$_d/libcuda.so.1" ] && export LD_LIBRARY_PATH="$_d:${LD_LIBRARY_PATH:-}"
+            done
+
+            # ── fm-eval source (private GHE repo; the space maps GITHUB_IBM_PAT -> GB_SDK_GIT_PAT) ──
+            CODE_DIR="$WORK/{{ config.code_config.workdir }}"
+            REPO="{{ config.code_config.repo }}"
+            REF="{{ config.code_config.ref }}"
+            TOKEN="${GB_SDK_GIT_PAT:-${GITHUB_IBM_PAT:-}}"
+            rm -rf "$CODE_DIR"
+            if [ -n "$TOKEN" ]; then
+              ASKPASS="$(mktemp)"
+              printf '#!/bin/sh\ncase "$1" in Username*) printf %%s x-access-token ;; *) printf %%s "$GB_EVAL_TOKEN" ;; esac\n' > "$ASKPASS"
+              chmod 700 "$ASKPASS"
+              GB_EVAL_TOKEN="$TOKEN" GIT_ASKPASS="$ASKPASS" GIT_TERMINAL_PROMPT=0 \
+                git clone --quiet --depth 1 -b "$REF" "https://$REPO.git" "$CODE_DIR"
+              rm -f "$ASKPASS"
+            else
+              echo "defense-eval: FATAL: no GHE token (GB_SDK_GIT_PAT) to clone private $REPO" >&2
+              exit 1
+            fi
+            CODE_SHA="$(git -C "$CODE_DIR" rev-parse HEAD)"
+            echo "GB_STEP_METADATA_KEY:fm_eval_commit GB_STEP_METADATA_VALUE:$CODE_SHA"
+            echo "defense-eval: fm-eval $REPO@$REF ($CODE_SHA)"
+
+            # ── Optional credentials file (NAME: <base64>) -> env, decoded here, never echoed ──
+            CRED_FILE="{{ config.credentials_file | string | trim }}"
+            if [ -n "$CRED_FILE" ]; then
+              if [ ! -r "$CRED_FILE" ]; then
+                echo "defense-eval: FATAL: credentials_file $CRED_FILE is not readable" >&2
+                exit 1
+              fi
+              CRED_ENV="$(mktemp)"
+              chmod 600 "$CRED_ENV"
+              "$PYBIN" ./src/load_credentials.py "$CRED_FILE" > "$CRED_ENV"
+              set -a; . "$CRED_ENV"; set +a
+              rm -f "$CRED_ENV"
+            fi
+
+            bash ./src/prepare_fm_eval.sh "$CODE_DIR"
+            # Local lh_eval_api stand-in: scores to disk instead of Lakehouse.
+            export PYTHONPATH="$PWD/src/lh_shim${PYTHONPATH:+:$PYTHONPATH}"
+
+            OUT_ROOT="{{ config.output_root | string | trim }}"
+            [ -z "$OUT_ROOT" ] && OUT_ROOT="$WORK/eval"
+            OUTPUT_PATH="$OUT_ROOT/{{ config.name }}"
+            mkdir -p "$OUTPUT_PATH"
+
+            MODEL="{{ bindings.model.binding.path }}"
+            if [ -f "$MODEL/adapter_config.json" ] && [ ! -f "$MODEL/config.json" ]; then
+              echo "defense-eval: FATAL: $MODEL is a LoRA adapter; merge it first (lora-merge-slurm)" >&2
+              exit 1
+            fi
+
+            cd "$CODE_DIR"
+            EVAL_LOG="$OUTPUT_PATH/eval.log"
+            set +e
+            env \
+              {% for k, v in (config.eval_config.extra_env or {}).items() %}{{ k }}="{{ v }}" {% endfor %}\
+              DATA_PATH="{{ config.data_path }}" \
+              KNOWLEDGE_DATA_PATH="{{ config.knowledge_data_path | string | trim }}" \
+              SYSTEM_PROMPT="{{ config.eval_config.system_prompt }}" \
+              TEMPERATURE="{{ config.eval_config.temperature }}" \
+              TOP_P="{{ config.eval_config.top_p }}" \
+              PROVIDER=vllm \
+              VLLM_TP_SIZE="{{ config.eval_config.vllm_tp_size }}" \
+              MODEL_NAME="$MODEL" \
+              BATCH_SIZE="{{ config.eval_config.batch_size }}" \
+              OUTPUT_PATH="$OUTPUT_PATH" \
+              DATASET_NAMES="{{ config.eval_config.dataset_names }}" \
+              TOOLS="{{ config.eval_config.tools }}" \
+              "$PYBIN" "{{ config.eval_config.script }}" > "$EVAL_LOG" 2>&1 &
+            EVAL_PID=$!
+            tail -n +1 -F --pid="$EVAL_PID" "$EVAL_LOG" 2>/dev/null || true
+            wait "$EVAL_PID"; RC=$?
+            set -e
+            echo "defense-eval: eval exit code $RC"
+            if [ "$RC" != "0" ] || [ ! -s "$OUTPUT_PATH/result.jsonl" ]; then
+              echo "defense-eval: FATAL: eval failed or wrote no result.jsonl (log: $EVAL_LOG)" >&2
+              exit 1
+            fi
+            echo "defense-eval: result: $(cat "$OUTPUT_PATH/result.jsonl")"
+            echo "GB_ARTIFACT_ID:eval_results GB_ARTIFACT_PATH:${OUTPUT_PATH}"
+    monitors:
+      skypilot_monitor:
+        ref: space://monitors/skypilot
+        config:
+          poll_interval_seconds: "{{ config.poll_interval_seconds | default(60) }}"
+          log_retrieval:
+            mode: "{{ config.log_retrieval_mode | default('periodic') }}"
+            interval_seconds: "{{ config.log_retrieval_interval_seconds | default(120) }}"

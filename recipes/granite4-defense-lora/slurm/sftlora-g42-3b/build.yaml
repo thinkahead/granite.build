@@ -1,0 +1,199 @@
+######
+# sftlora-g42-3b (SLURM) — granite-4.2-3b LoRA SFT with ODM entropy sampling on the
+# defense XML/tool datasets, on BlueVela SLURM.
+#
+# Port of defence/granite_dot_build_enhanced/sftlora_g42_3b_v2_odm_90_10_entropy_xml_enhanced.yaml
+# (Vela, space://steps/tuning, build 224c09b0) to the SkyPilot SLURM environment via the
+# tuning-slurm step. The trainer config (tuning_config / tuning_data_config / fsdp_config)
+# is carried over verbatim; what changed:
+#   * environment   -> space://environments/skypilot/slurm/ibm-bluevela
+#   * step          -> space://steps/tuning-slurm (same config surface as `tuning`)
+#   * model         -> /proj copy of granite-4.2-3b (env://), not hf://
+#   * data_paths    -> /gb-read-write/karve/xmldata{,_v2}  =>  $${DATA_V1_ROOT} / $${DATA_V2_ROOT}
+#   * k8s.setupcommands -> setup_commands (same patches; run in-container on each node)
+#   * k8s.env NCCL_TIMEOUT -> launcher_config.envs
+#   * outputs       -> env:// dirs under $${OUTPUT_ROOT}/<build_id>/ (no lakehouse push)
+#   * dropped: `pip install -U accelerate clearml` (image already ships accelerate 1.13;
+#     no ClearML server on BV) and `touch /logs/output.log` (k8s sidecar path).
+#
+# final_checkpoint is a LoRA ADAPTER — merge with the base before vLLM eval.
+#
+# Run (parameters.yaml beside this file is picked up automatically):
+#   gb build start -f recipes/granite4-defense-lora/slurm/sftlora-g42-3b/build.yaml --skip-version-check
+# Quick pipeline smoke:  --param MAX_STEPS=50 --param EVAL_STEPS=25 --param ODM_UPDATE_INTERVAL=25 --param SAVE_STEPS=50
+######
+<% set V2 = [
+  ("tuning_data_inventory", "inventory_10102025_training_v2"),
+  ("tuning_data_equipment", "equipment_10102025_training_v3"),
+  ("tuning_data_military", "militarygroups_10102025_training_v2"),
+  ("tuning_data_organizations", "organizations_22102025_training_v7"),
+  ("tuning_data_installations", "installations_21112025_training_v9"),
+  ("tuning_data_non_state_groups", "nonstategroups_10102025_training_v2"),
+  ("tuning_data_ships", "ships_10102025_training_v2"),
+  ("tuning_data_events", "events_16102025_training_v3"),
+  ("tuning_data_analysis", "analysis_14102025_training_v10"),
+  ("tuning_data_profiles", "profiles_10102025_training_v2"),
+  ("tuning_data_news", "news_14102025_training_v3"),
+] %>
+granite.build:
+  name: sftlora_g42_3b_v2_odm_90_10_entropy_xml_slurm
+  retries:
+    max_retries: $${MAX_RETRIES}
+  targets:
+    tunedmodel:
+      environment_uri: "$${ENVIRONMENT_URI}"
+      inputs:
+        model_to_tune:
+          uri: "$${MODEL_URI}"
+          type: model
+      outputs:
+        final_checkpoint:
+          uri: "env://{{ binding.path }}"
+          type: model
+        intermediate_checkpoint_with_optimizer_state:
+          uri: "env://{{ binding.path }}"
+          type: model
+        training_logs_jsonl:
+          uri: "env://{{ binding.path }}"
+          type: dataset
+      steps:
+        - step_uri: space://steps/tuning-slurm
+          config:
+            output_root: "$${OUTPUT_ROOT}/{{ run_metadata.build_id }}"
+            experiment: "$${EXPERIMENT}"
+            poll_interval_seconds: $${POLL_INTERVAL_SECONDS}
+            log_retrieval_interval_seconds: $${LOG_RETRIEVAL_INTERVAL_SECONDS}
+            compute_config:
+              num_nodes: $${NUM_NODES}
+              num_gpus_per_node: $${NUM_GPUS_PER_NODE}
+              num_cpus_per_node: $${GPU_CPUS}
+            launcher_config:
+              sbatch_options:
+                time: "$${TIME_LIMIT}"
+<% if QOS | string | trim != "" %>
+                qos: "$${QOS}"
+<% endif %>
+              resources:
+                accelerators: "$${ACCELERATORS}"
+                memory: $${MEMORY}
+                cluster: "$${CLUSTER}"
+                zone: "$${QUEUE}"
+              envs:
+                NCCL_TIMEOUT: "10800000" # 3 hours
+            tuning_data_config:
+              dataprocessor:
+                type: odm
+                seed: 42
+                odm:
+                  update_interval: $${ODM_UPDATE_INTERVAL}
+                  sampling_interval: 1 # sample category for every sample
+                  reward_type: entropy # bounded [0,1] reward; REQUIRES the vocab_size=100352 fix below. See defense/ODM_TUNING.md
+                  gamma: 0.1
+                  eta: 0.3
+              datasets:
+<% for name, dir in V2[:1] %>
+                - name: $${name}
+                  split:
+                    train: 0.90
+                    validation: 0.10
+                  data_paths:
+                    - '$${DATA_V2_ROOT}/$${dir}/data/*.parquet'
+                  data_handlers:
+                    - name: tokenize_and_apply_chat_template_with_masking
+                      arguments:
+                        remove_columns: all
+                        batched: false
+                        fn_kwargs:
+                          conversation_column: messages
+<% endfor %>
+                - name: tuning_data_router
+                  split:
+                    train: 0.90
+                    validation: 0.10
+                  data_paths:
+                    - '$${DATA_V1_ROOT}/router_14102025_training_all_v1/data/*.parquet'
+                  data_handlers:
+                    - name: tokenize_and_apply_chat_template_with_masking
+                      arguments:
+                        remove_columns: all
+                        batched: false
+                        fn_kwargs:
+                          conversation_column: messages
+<% for name, dir in V2[1:] %>
+                - name: $${name}
+                  split:
+                    train: 0.90
+                    validation: 0.10
+                  data_paths:
+                    - '$${DATA_V2_ROOT}/$${dir}/data/*.parquet'
+                  data_handlers:
+                    - name: tokenize_and_apply_chat_template_with_masking
+                      arguments:
+                        remove_columns: all
+                        batched: false
+                        fn_kwargs:
+                          conversation_column: messages
+<% endfor %>
+            tuning_config:
+              ddp_timeout: "10800" # 3 hours
+              logging_steps: '10'
+              max_steps: $${MAX_STEPS}
+              eval_strategy: "steps"
+              eval_steps: $${EVAL_STEPS} # keep aligned with ODM update_interval
+              save_strategy: "steps"
+              save_steps: $${SAVE_STEPS}
+              optim: adamw_torch
+              adam_beta1: '0.9'
+              adam_beta2: '0.95'
+              adam_epsilon: '1e-10'
+              optim_args: lr=$${LEARNING_RATE}
+              learning_rate: '$${LEARNING_RATE}'
+              weight_decay: '0.1'
+              gradient_checkpointing: true
+              gradient_accumulation_steps: 1
+              # per_device_EVAL_batch_size MUST stay 1 (padding-free eval/ODM collator).
+              per_device_train_batch_size: $${PER_DEVICE_TRAIN_BATCH_SIZE}
+              per_device_eval_batch_size: 1
+              max_seq_length: $${MAX_SEQ_LENGTH}
+              use_flash_attn: true
+              lr_scheduler_type: cosine
+              fast_kernels:
+                - 'True'
+                - 'True'
+                - 'True'
+              padding_free: huggingface
+              enable_reduce_loss_sum: "true"
+              # RESIZE-SUPPRESSION: no <PAD> token added -> no modules_to_save -> clean FSDP + merge.
+              tokenizer_name_or_path: '{{ bindings.model_to_tune.binding.path }}'
+              # --- LoRA (PEFT) --- dense GraniteForCausalLM targets
+              peft_method: lora
+              r: $${LORA_R}
+              lora_alpha: $${LORA_ALPHA}
+              lora_dropout: $${LORA_DROPOUT}
+              target_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+            fsdp_config:
+              use_fsdp: "true"
+              fsdp_auto_wrap_policy: "TRANSFORMER_BASED_WRAP"
+              fsdp_forward_prefetch: "false"
+              fsdp_offload_params: "false"
+              fsdp_sharding_strategy: "FULL_SHARD"
+              fsdp_state_dict_type: "FULL_STATE_DICT"
+              fsdp_cpu_ram_efficient_loading: true
+              fsdp_use_orig_params: "true"
+            setup_commands:
+              # GPFS-safe filelock (fcntl.lockf + no unlink-on-release). HF_HOME is node-local
+              # /tmp here, but the patch is kept for parity with the Vela run.
+              - sed -i s/fcntl.flock/fcntl.lockf/ /usr/local/lib/python3.12/dist-packages/filelock/_unix.py
+              - perl -0777 -i -pe 's/\n {12}with suppress\(OSError\):\n {16}Path\(self\.lock_file\)\.unlink\(\)//' /usr/local/lib/python3.12/dist-packages/filelock/_unix.py
+              - echo "FILELOCK_PATCH_APPLIED lockf=$(grep -c fcntl.lockf /usr/local/lib/python3.12/dist-packages/filelock/_unix.py) unlink=$(grep -c 'unlink()' /usr/local/lib/python3.12/dist-packages/filelock/_unix.py)"
+              - grep -q "fcntl.lockf" /usr/local/lib/python3.12/dist-packages/filelock/_unix.py
+              - test "$(grep -c 'unlink()' /usr/local/lib/python3.12/dist-packages/filelock/_unix.py)" = 2
+              - sed -i "s|self.log_file_path =.*$|self.log_file_path = '/tmp/odm.jsonl'|g" /usr/local/lib/python3.12/dist-packages/fms_acceleration_odm/odm/dataset.py
+              # ODM entropy-reward normalization: vocab_size 32000 -> granite-4.2's 100352.
+              - sed -i 's/vocab_size=32000/vocab_size=100352/g' /usr/local/lib/python3.12/dist-packages/fms_acceleration_odm/odm/dataset.py
+              - test "$(grep -c 'vocab_size=100352' /usr/local/lib/python3.12/dist-packages/fms_acceleration_odm/odm/dataset.py)" = 2
+              # ODM MAB numerical stability (renormalize weights + clamp exp exponent).
+              - perl -0777 -i -pe 's{        return self\._update_sampling_ratio\(self\.sampling_weights\)}{        self.sampling_weights = self.sampling_weights / self.sampling_weights.max()\n        return self._update_sampling_ratio(self.sampling_weights)}' /usr/local/lib/python3.12/dist-packages/fms_acceleration_odm/odm/dataset.py
+              - perl -0777 -i -pe 's{self\.eta \* est_r / self\.total_categories}{min(self.eta * est_r / self.total_categories, 30.0)}' /usr/local/lib/python3.12/dist-packages/fms_acceleration_odm/odm/dataset.py
+              - grep -q "sampling_weights.max()" /usr/local/lib/python3.12/dist-packages/fms_acceleration_odm/odm/dataset.py
+              - grep -q "min(self.eta" /usr/local/lib/python3.12/dist-packages/fms_acceleration_odm/odm/dataset.py

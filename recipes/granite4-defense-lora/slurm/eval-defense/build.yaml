@@ -1,0 +1,605 @@
+######
+# eval-defense (SLURM) — merge a LoRA adapter, then run the defense tool-calling evals with
+# vLLM on BlueVela, the same way Vela's defence/granite_dot_build_enhanced/eval_g42nt_local.yaml
+# did (one target per category, fm-eval@unitxt_benchmarks_local, vLLM TP=2 on 2 GPUs,
+# SYSTEM_PROMPT=none TEMPERATURE=0 TOP_P=1.0, same DATASET_NAMES/TOOLS/BATCH_SIZE per category).
+#
+#   merge  (lora-merge-slurm)  ->  12 x <category>  (defense-eval-slurm, in parallel)
+#
+# Differences from Vela (see the defense-eval-slurm step README):
+#   * Scores go to $${OUTPUT_ROOT}/$${NAME}/<category>/result.jsonl (+ instance_scores.jsonl,
+#     eval.log) instead of the Lakehouse.
+#   * The 2 knowledge targets (knowledge, knowledge_with_tools; KNOWLEDGE=true) read the
+#     Lakehouse tables from parquet pulled to $${KNOWLEDGE_DATA_PATH}, and get the watsonx
+#     judge credentials from $${WATSONX_CREDENTIALS_FILE} (NAME: <base64> lines).
+#
+# Run (parameters.yaml beside this file is picked up automatically):
+#   gb build start -f recipes/granite4-defense-lora/slurm/eval-defense/build.yaml --skip-version-check
+# Another checkpoint:
+#   --param ADAPTER_PATH=/proj/.../checkpoint-3000 --param NAME=eval_g42nt_lora_3b_cd2bfbc2_3000
+######
+granite.build:
+  name: $${NAME}
+  retries:
+    max_retries: $${MAX_RETRIES}
+    target_reuse_enabled: true
+  targets:
+    merge:
+      environment_uri: "$${ENVIRONMENT_URI}"
+      inputs:
+        base_model:
+          uri: "env://$${BASE_MODEL_PATH}"
+          type: model
+        adapter:
+          uri: "env://$${ADAPTER_PATH}"
+          type: model
+      outputs:
+        merged_model:
+          uri: "env://{{ binding.path }}"
+          type: model
+      steps:
+        - step_uri: space://steps/lora-merge-slurm
+          config:
+            output_dir: "$${MERGED_PATH}"
+            force: $${FORCE_MERGE}
+            compute_config:
+              num_nodes: 1
+              num_gpus_per_node: 1
+              num_cpus_per_node: 16
+            launcher_config:
+              sbatch_options:
+                time: "1:00:00"
+<% if QOS | string | trim != "" %>
+                qos: "$${QOS}"
+<% endif %>
+              resources:
+                accelerators: "H200:1"
+                memory: 128
+                cluster: "$${CLUSTER}"
+                zone: "$${QUEUE}"
+
+    inventory:
+      environment_uri: "$${ENVIRONMENT_URI}"
+      inputs:
+        model:
+          binding: merge.merged_model
+      outputs:
+        eval_results:
+          uri: "env://{{ binding.path }}"
+          type: dataset
+      steps:
+        - step_uri: space://steps/defense-eval-slurm
+          config:
+            code_config:
+              ref: "$${FM_EVAL_REF}"
+            data_path: "$${DATA_PATH}"
+            output_root: "$${OUTPUT_ROOT}/$${NAME}"
+            name: "inventory"
+            poll_interval_seconds: $${POLL_INTERVAL_SECONDS}
+            log_retrieval_interval_seconds: $${LOG_RETRIEVAL_INTERVAL_SECONDS}
+            eval_config:
+              script: "unitxt_benchmarks/defense/defense_unitxt_evaluation_with_profile.py"
+              dataset_names: "inventory_04092025_trainingforeval_v1,inventory_01092025_test_v1"
+              tools: "janes_tool_calling_v6"
+              batch_size: 10
+              vllm_tp_size: $${NUM_GPUS_PER_NODE}
+            compute_config:
+              num_nodes: 1
+              num_gpus_per_node: $${NUM_GPUS_PER_NODE}
+              num_cpus_per_node: $${GPU_CPUS}
+            launcher_config:
+              sbatch_options:
+                time: "$${TIME_LIMIT}"
+<% if QOS | string | trim != "" %>
+                qos: "$${QOS}"
+<% endif %>
+              resources:
+                accelerators: "$${ACCELERATORS}"
+                memory: $${MEMORY}
+                cluster: "$${CLUSTER}"
+                zone: "$${QUEUE}"
+
+    equipment:
+      environment_uri: "$${ENVIRONMENT_URI}"
+      inputs:
+        model:
+          binding: merge.merged_model
+      outputs:
+        eval_results:
+          uri: "env://{{ binding.path }}"
+          type: dataset
+      steps:
+        - step_uri: space://steps/defense-eval-slurm
+          config:
+            code_config:
+              ref: "$${FM_EVAL_REF}"
+            data_path: "$${DATA_PATH}"
+            output_root: "$${OUTPUT_ROOT}/$${NAME}"
+            name: "equipment"
+            poll_interval_seconds: $${POLL_INTERVAL_SECONDS}
+            log_retrieval_interval_seconds: $${LOG_RETRIEVAL_INTERVAL_SECONDS}
+            eval_config:
+              script: "unitxt_benchmarks/defense/defense_unitxt_evaluation_with_profile.py"
+              dataset_names: "equipment_train_set_03092025_v1,equipment_test_01092025_v2"
+              tools: "equipment_tools_08092025_v1"
+              batch_size: 5
+              vllm_tp_size: $${NUM_GPUS_PER_NODE}
+            compute_config:
+              num_nodes: 1
+              num_gpus_per_node: $${NUM_GPUS_PER_NODE}
+              num_cpus_per_node: $${GPU_CPUS}
+            launcher_config:
+              sbatch_options:
+                time: "$${TIME_LIMIT}"
+<% if QOS | string | trim != "" %>
+                qos: "$${QOS}"
+<% endif %>
+              resources:
+                accelerators: "$${ACCELERATORS}"
+                memory: $${MEMORY}
+                cluster: "$${CLUSTER}"
+                zone: "$${QUEUE}"
+
+    military:
+      environment_uri: "$${ENVIRONMENT_URI}"
+      inputs:
+        model:
+          binding: merge.merged_model
+      outputs:
+        eval_results:
+          uri: "env://{{ binding.path }}"
+          type: dataset
+      steps:
+        - step_uri: space://steps/defense-eval-slurm
+          config:
+            code_config:
+              ref: "$${FM_EVAL_REF}"
+            data_path: "$${DATA_PATH}"
+            output_root: "$${OUTPUT_ROOT}/$${NAME}"
+            name: "military"
+            poll_interval_seconds: $${POLL_INTERVAL_SECONDS}
+            log_retrieval_interval_seconds: $${LOG_RETRIEVAL_INTERVAL_SECONDS}
+            eval_config:
+              script: "unitxt_benchmarks/defense/defense_unitxt_evaluation_with_profile.py"
+              dataset_names: "militarygroups__22092025_test_v1,militarygroups_10092025_trainingforeval_v1"
+              tools: "military_10092025_tools_v1"
+              batch_size: 10
+              vllm_tp_size: $${NUM_GPUS_PER_NODE}
+            compute_config:
+              num_nodes: 1
+              num_gpus_per_node: $${NUM_GPUS_PER_NODE}
+              num_cpus_per_node: $${GPU_CPUS}
+            launcher_config:
+              sbatch_options:
+                time: "$${TIME_LIMIT}"
+<% if QOS | string | trim != "" %>
+                qos: "$${QOS}"
+<% endif %>
+              resources:
+                accelerators: "$${ACCELERATORS}"
+                memory: $${MEMORY}
+                cluster: "$${CLUSTER}"
+                zone: "$${QUEUE}"
+
+    organization:
+      environment_uri: "$${ENVIRONMENT_URI}"
+      inputs:
+        model:
+          binding: merge.merged_model
+      outputs:
+        eval_results:
+          uri: "env://{{ binding.path }}"
+          type: dataset
+      steps:
+        - step_uri: space://steps/defense-eval-slurm
+          config:
+            code_config:
+              ref: "$${FM_EVAL_REF}"
+            data_path: "$${DATA_PATH}"
+            output_root: "$${OUTPUT_ROOT}/$${NAME}"
+            name: "organization"
+            poll_interval_seconds: $${POLL_INTERVAL_SECONDS}
+            log_retrieval_interval_seconds: $${LOG_RETRIEVAL_INTERVAL_SECONDS}
+            eval_config:
+              script: "unitxt_benchmarks/defense/defense_unitxt_evaluation_with_profile.py"
+              dataset_names: "organizations_22092025_trainingforeval_v6,organizations_22092025_test_v9"
+              tools: "organizations_14092025_tools_v1"
+              batch_size: 10
+              vllm_tp_size: $${NUM_GPUS_PER_NODE}
+            compute_config:
+              num_nodes: 1
+              num_gpus_per_node: $${NUM_GPUS_PER_NODE}
+              num_cpus_per_node: $${GPU_CPUS}
+            launcher_config:
+              sbatch_options:
+                time: "$${TIME_LIMIT}"
+<% if QOS | string | trim != "" %>
+                qos: "$${QOS}"
+<% endif %>
+              resources:
+                accelerators: "$${ACCELERATORS}"
+                memory: $${MEMORY}
+                cluster: "$${CLUSTER}"
+                zone: "$${QUEUE}"
+
+    installations:
+      environment_uri: "$${ENVIRONMENT_URI}"
+      inputs:
+        model:
+          binding: merge.merged_model
+      outputs:
+        eval_results:
+          uri: "env://{{ binding.path }}"
+          type: dataset
+      steps:
+        - step_uri: space://steps/defense-eval-slurm
+          config:
+            code_config:
+              ref: "$${FM_EVAL_REF}"
+            data_path: "$${DATA_PATH}"
+            output_root: "$${OUTPUT_ROOT}/$${NAME}"
+            name: "installations"
+            poll_interval_seconds: $${POLL_INTERVAL_SECONDS}
+            log_retrieval_interval_seconds: $${LOG_RETRIEVAL_INTERVAL_SECONDS}
+            eval_config:
+              script: "unitxt_benchmarks/defense/defense_unitxt_evaluation_with_profile.py"
+              dataset_names: "installations_13102025_trainingforeval_v5,installations_13102025_test_v2"
+              tools: "installations_22102025_tools_v2"
+              batch_size: 10
+              vllm_tp_size: $${NUM_GPUS_PER_NODE}
+            compute_config:
+              num_nodes: 1
+              num_gpus_per_node: $${NUM_GPUS_PER_NODE}
+              num_cpus_per_node: $${GPU_CPUS}
+            launcher_config:
+              sbatch_options:
+                time: "$${TIME_LIMIT}"
+<% if QOS | string | trim != "" %>
+                qos: "$${QOS}"
+<% endif %>
+              resources:
+                accelerators: "$${ACCELERATORS}"
+                memory: $${MEMORY}
+                cluster: "$${CLUSTER}"
+                zone: "$${QUEUE}"
+
+    router:
+      environment_uri: "$${ENVIRONMENT_URI}"
+      inputs:
+        model:
+          binding: merge.merged_model
+      outputs:
+        eval_results:
+          uri: "env://{{ binding.path }}"
+          type: dataset
+      steps:
+        - step_uri: space://steps/defense-eval-slurm
+          config:
+            code_config:
+              ref: "$${FM_EVAL_REF}"
+            data_path: "$${DATA_PATH}"
+            output_root: "$${OUTPUT_ROOT}/$${NAME}"
+            name: "router"
+            poll_interval_seconds: $${POLL_INTERVAL_SECONDS}
+            log_retrieval_interval_seconds: $${LOG_RETRIEVAL_INTERVAL_SECONDS}
+            eval_config:
+              script: "unitxt_benchmarks/defense/defense_unitxt_evaluation_with_profile_for_router.py"
+              dataset_names: "router_equip_invent_milit_org_11092025_test_v1,router_equip_invent_milit_org_11092025_trainingforeval_v1"
+              tools: "router_15092025_tools_v2"
+              batch_size: 20
+              vllm_tp_size: $${NUM_GPUS_PER_NODE}
+            compute_config:
+              num_nodes: 1
+              num_gpus_per_node: $${NUM_GPUS_PER_NODE}
+              num_cpus_per_node: $${GPU_CPUS}
+            launcher_config:
+              sbatch_options:
+                time: "$${TIME_LIMIT}"
+<% if QOS | string | trim != "" %>
+                qos: "$${QOS}"
+<% endif %>
+              resources:
+                accelerators: "$${ACCELERATORS}"
+                memory: $${MEMORY}
+                cluster: "$${CLUSTER}"
+                zone: "$${QUEUE}"
+
+    events:
+      environment_uri: "$${ENVIRONMENT_URI}"
+      inputs:
+        model:
+          binding: merge.merged_model
+      outputs:
+        eval_results:
+          uri: "env://{{ binding.path }}"
+          type: dataset
+      steps:
+        - step_uri: space://steps/defense-eval-slurm
+          config:
+            code_config:
+              ref: "$${FM_EVAL_REF}"
+            data_path: "$${DATA_PATH}"
+            output_root: "$${OUTPUT_ROOT}/$${NAME}"
+            name: "events"
+            poll_interval_seconds: $${POLL_INTERVAL_SECONDS}
+            log_retrieval_interval_seconds: $${LOG_RETRIEVAL_INTERVAL_SECONDS}
+            eval_config:
+              script: "unitxt_benchmarks/defense/defense_unitxt_evaluation_with_profile.py"
+              dataset_names: "events_30102025_trainingforeval_v4,events_30102025_test_v8"
+              tools: "events_27102025_tools_v3"
+              batch_size: 20
+              vllm_tp_size: $${NUM_GPUS_PER_NODE}
+            compute_config:
+              num_nodes: 1
+              num_gpus_per_node: $${NUM_GPUS_PER_NODE}
+              num_cpus_per_node: $${GPU_CPUS}
+            launcher_config:
+              sbatch_options:
+                time: "$${TIME_LIMIT}"
+<% if QOS | string | trim != "" %>
+                qos: "$${QOS}"
+<% endif %>
+              resources:
+                accelerators: "$${ACCELERATORS}"
+                memory: $${MEMORY}
+                cluster: "$${CLUSTER}"
+                zone: "$${QUEUE}"
+
+    ships:
+      environment_uri: "$${ENVIRONMENT_URI}"
+      inputs:
+        model:
+          binding: merge.merged_model
+      outputs:
+        eval_results:
+          uri: "env://{{ binding.path }}"
+          type: dataset
+      steps:
+        - step_uri: space://steps/defense-eval-slurm
+          config:
+            code_config:
+              ref: "$${FM_EVAL_REF}"
+            data_path: "$${DATA_PATH}"
+            output_root: "$${OUTPUT_ROOT}/$${NAME}"
+            name: "ships"
+            poll_interval_seconds: $${POLL_INTERVAL_SECONDS}
+            log_retrieval_interval_seconds: $${LOG_RETRIEVAL_INTERVAL_SECONDS}
+            eval_config:
+              script: "unitxt_benchmarks/defense/defense_unitxt_evaluation_with_profile.py"
+              dataset_names: "ships_13112025_trainingforeval_v2,ships_test_29092025_v1"
+              tools: "ships_01102025_tools_v2"
+              batch_size: 20
+              vllm_tp_size: $${NUM_GPUS_PER_NODE}
+            compute_config:
+              num_nodes: 1
+              num_gpus_per_node: $${NUM_GPUS_PER_NODE}
+              num_cpus_per_node: $${GPU_CPUS}
+            launcher_config:
+              sbatch_options:
+                time: "$${TIME_LIMIT}"
+<% if QOS | string | trim != "" %>
+                qos: "$${QOS}"
+<% endif %>
+              resources:
+                accelerators: "$${ACCELERATORS}"
+                memory: $${MEMORY}
+                cluster: "$${CLUSTER}"
+                zone: "$${QUEUE}"
+
+    nonstategroups:
+      environment_uri: "$${ENVIRONMENT_URI}"
+      inputs:
+        model:
+          binding: merge.merged_model
+      outputs:
+        eval_results:
+          uri: "env://{{ binding.path }}"
+          type: dataset
+      steps:
+        - step_uri: space://steps/defense-eval-slurm
+          config:
+            code_config:
+              ref: "$${FM_EVAL_REF}"
+            data_path: "$${DATA_PATH}"
+            output_root: "$${OUTPUT_ROOT}/$${NAME}"
+            name: "nonstategroups"
+            poll_interval_seconds: $${POLL_INTERVAL_SECONDS}
+            log_retrieval_interval_seconds: $${LOG_RETRIEVAL_INTERVAL_SECONDS}
+            eval_config:
+              script: "unitxt_benchmarks/defense/defense_unitxt_evaluation_with_profile.py"
+              dataset_names: "nonstategroups_24092025_trainingforeval_v1,nonstategroups_29092025_test_v2"
+              tools: "nonstategroups_24092025_tools_v1"
+              batch_size: 20
+              vllm_tp_size: $${NUM_GPUS_PER_NODE}
+            compute_config:
+              num_nodes: 1
+              num_gpus_per_node: $${NUM_GPUS_PER_NODE}
+              num_cpus_per_node: $${GPU_CPUS}
+            launcher_config:
+              sbatch_options:
+                time: "$${TIME_LIMIT}"
+<% if QOS | string | trim != "" %>
+                qos: "$${QOS}"
+<% endif %>
+              resources:
+                accelerators: "$${ACCELERATORS}"
+                memory: $${MEMORY}
+                cluster: "$${CLUSTER}"
+                zone: "$${QUEUE}"
+
+    analysis:
+      environment_uri: "$${ENVIRONMENT_URI}"
+      inputs:
+        model:
+          binding: merge.merged_model
+      outputs:
+        eval_results:
+          uri: "env://{{ binding.path }}"
+          type: dataset
+      steps:
+        - step_uri: space://steps/defense-eval-slurm
+          config:
+            code_config:
+              ref: "$${FM_EVAL_REF}"
+            data_path: "$${DATA_PATH}"
+            output_root: "$${OUTPUT_ROOT}/$${NAME}"
+            name: "analysis"
+            poll_interval_seconds: $${POLL_INTERVAL_SECONDS}
+            log_retrieval_interval_seconds: $${LOG_RETRIEVAL_INTERVAL_SECONDS}
+            eval_config:
+              script: "unitxt_benchmarks/defense/defense_unitxt_evaluation_with_profile.py"
+              dataset_names: "analysis_21102025_trainingforeval_v12,analysis_22102025_test_v12"
+              tools: "analysis_06102025_tools_v1"
+              batch_size: 20
+              vllm_tp_size: $${NUM_GPUS_PER_NODE}
+            compute_config:
+              num_nodes: 1
+              num_gpus_per_node: $${NUM_GPUS_PER_NODE}
+              num_cpus_per_node: $${GPU_CPUS}
+            launcher_config:
+              sbatch_options:
+                time: "$${TIME_LIMIT}"
+<% if QOS | string | trim != "" %>
+                qos: "$${QOS}"
+<% endif %>
+              resources:
+                accelerators: "$${ACCELERATORS}"
+                memory: $${MEMORY}
+                cluster: "$${CLUSTER}"
+                zone: "$${QUEUE}"
+
+    profiles:
+      environment_uri: "$${ENVIRONMENT_URI}"
+      inputs:
+        model:
+          binding: merge.merged_model
+      outputs:
+        eval_results:
+          uri: "env://{{ binding.path }}"
+          type: dataset
+      steps:
+        - step_uri: space://steps/defense-eval-slurm
+          config:
+            code_config:
+              ref: "$${FM_EVAL_REF}"
+            data_path: "$${DATA_PATH}"
+            output_root: "$${OUTPUT_ROOT}/$${NAME}"
+            name: "profiles"
+            poll_interval_seconds: $${POLL_INTERVAL_SECONDS}
+            log_retrieval_interval_seconds: $${LOG_RETRIEVAL_INTERVAL_SECONDS}
+            eval_config:
+              script: "unitxt_benchmarks/defense/defense_unitxt_evaluation_with_profile.py"
+              dataset_names: "profiles_09102025_trainingforeval_v2,profiles_13102025_test_v3"
+              tools: "profiles_07102025_tools_v1"
+              batch_size: 20
+              vllm_tp_size: $${NUM_GPUS_PER_NODE}
+            compute_config:
+              num_nodes: 1
+              num_gpus_per_node: $${NUM_GPUS_PER_NODE}
+              num_cpus_per_node: $${GPU_CPUS}
+            launcher_config:
+              sbatch_options:
+                time: "$${TIME_LIMIT}"
+<% if QOS | string | trim != "" %>
+                qos: "$${QOS}"
+<% endif %>
+              resources:
+                accelerators: "$${ACCELERATORS}"
+                memory: $${MEMORY}
+                cluster: "$${CLUSTER}"
+                zone: "$${QUEUE}"
+
+    news:
+      environment_uri: "$${ENVIRONMENT_URI}"
+      inputs:
+        model:
+          binding: merge.merged_model
+      outputs:
+        eval_results:
+          uri: "env://{{ binding.path }}"
+          type: dataset
+      steps:
+        - step_uri: space://steps/defense-eval-slurm
+          config:
+            code_config:
+              ref: "$${FM_EVAL_REF}"
+            data_path: "$${DATA_PATH}"
+            output_root: "$${OUTPUT_ROOT}/$${NAME}"
+            name: "news"
+            poll_interval_seconds: $${POLL_INTERVAL_SECONDS}
+            log_retrieval_interval_seconds: $${LOG_RETRIEVAL_INTERVAL_SECONDS}
+            eval_config:
+              script: "unitxt_benchmarks/defense/defense_unitxt_evaluation_with_profile.py"
+              dataset_names: "news_10102025_trainingforeval_v1,news_13102025_test_v2"
+              tools: "news_10102025_tools_v1"
+              batch_size: 20
+              vllm_tp_size: $${NUM_GPUS_PER_NODE}
+            compute_config:
+              num_nodes: 1
+              num_gpus_per_node: $${NUM_GPUS_PER_NODE}
+              num_cpus_per_node: $${GPU_CPUS}
+            launcher_config:
+              sbatch_options:
+                time: "$${TIME_LIMIT}"
+<% if QOS | string | trim != "" %>
+                qos: "$${QOS}"
+<% endif %>
+              resources:
+                accelerators: "$${ACCELERATORS}"
+                memory: $${MEMORY}
+                cluster: "$${CLUSTER}"
+                zone: "$${QUEUE}"
+
+<% if KNOWLEDGE | string | lower in ("true", "yes", "1", "on") %>
+<% for kname, kscript, kbatch, ktools, kds in [
+  ("knowledge", "unitxt_benchmarks/defense_knowledge/defense_knowledge_unitxt_evaluation.py", 10, "", ""),
+  ("knowledge_with_tools", "unitxt_benchmarks/defense_knowledge/defense_knowledge_unitxt_evaluation_with_tool_calls.py", 6, "router_15092025_tools_v2", "knowledge_validation_set,knowledge_test_set"),
+] %>
+    $${kname}:
+      environment_uri: "$${ENVIRONMENT_URI}"
+      inputs:
+        model:
+          binding: merge.merged_model
+      outputs:
+        eval_results:
+          uri: "env://{{ binding.path }}"
+          type: dataset
+      steps:
+        - step_uri: space://steps/defense-eval-slurm
+          config:
+            code_config:
+              ref: "$${FM_EVAL_REF}"
+            data_path: "$${DATA_PATH}"
+            knowledge_data_path: "$${KNOWLEDGE_DATA_PATH}"
+            credentials_file: "$${WATSONX_CREDENTIALS_FILE}"
+            output_root: "$${OUTPUT_ROOT}/$${NAME}"
+            name: "$${kname}"
+            poll_interval_seconds: $${POLL_INTERVAL_SECONDS}
+            log_retrieval_interval_seconds: $${LOG_RETRIEVAL_INTERVAL_SECONDS}
+            eval_config:
+              script: "$${kscript}"
+              dataset_names: "$${kds}"
+              tools: "$${ktools}"
+              batch_size: $${kbatch}
+              vllm_tp_size: $${NUM_GPUS_PER_NODE}
+              # Vela custom_knowledge* k8s.env
+              extra_env:
+                WML_READ_TIMEOUT: "900"
+                WML_TIMEOUT_RETRIES: "6"
+            compute_config:
+              num_nodes: 1
+              num_gpus_per_node: $${NUM_GPUS_PER_NODE}
+              num_cpus_per_node: $${GPU_CPUS}
+            launcher_config:
+              sbatch_options:
+                time: "$${TIME_LIMIT}"
+<% if QOS | string | trim != "" %>
+                qos: "$${QOS}"
+<% endif %>
+              resources:
+                accelerators: "$${ACCELERATORS}"
+                memory: $${MEMORY}
+                cluster: "$${CLUSTER}"
+                zone: "$${QUEUE}"
+<% endfor %>
+<% endif %>

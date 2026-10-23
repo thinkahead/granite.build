@@ -1,0 +1,166 @@
+dataprocessor:
+  type: odm
+  seed: 42
+  odm:
+    update_interval: 10
+    sampling_interval: 1
+    reward_type: entropy
+    gamma: 0.1
+    eta: 0.3
+datasets:
+- name: tuning_data_inventory
+  split:
+    train: 0.9
+    validation: 0.1
+  data_paths:
+  - /proj/granite-build/g4os/defense/defense_xmldata_v2/20260914T194134/inventory_10102025_training_v2/data/*.parquet
+  data_handlers:
+  - name: tokenize_and_apply_chat_template_with_masking
+    arguments:
+      remove_columns: all
+      batched: false
+      fn_kwargs:
+        conversation_column: messages
+- name: tuning_data_router
+  split:
+    train: 0.9
+    validation: 0.1
+  data_paths:
+  - /proj/granite-build/g4os/defense/defense_xmldata/20260914T194247/router_14102025_training_all_v1/data/*.parquet
+  data_handlers:
+  - name: tokenize_and_apply_chat_template_with_masking
+    arguments:
+      remove_columns: all
+      batched: false
+      fn_kwargs:
+        conversation_column: messages
+- name: tuning_data_equipment
+  split:
+    train: 0.9
+    validation: 0.1
+  data_paths:
+  - /proj/granite-build/g4os/defense/defense_xmldata_v2/20260914T194134/equipment_10102025_training_v3/data/*.parquet
+  data_handlers:
+  - name: tokenize_and_apply_chat_template_with_masking
+    arguments:
+      remove_columns: all
+      batched: false
+      fn_kwargs:
+        conversation_column: messages
+- name: tuning_data_military
+  split:
+    train: 0.9
+    validation: 0.1
+  data_paths:
+  - /proj/granite-build/g4os/defense/defense_xmldata_v2/20260914T194134/militarygroups_10102025_training_v2/data/*.parquet
+  data_handlers:
+  - name: tokenize_and_apply_chat_template_with_masking
+    arguments:
+      remove_columns: all
+      batched: false
+      fn_kwargs:
+        conversation_column: messages
+- name: tuning_data_organizations
+  split:
+    train: 0.9
+    validation: 0.1
+  data_paths:
+  - /proj/granite-build/g4os/defense/defense_xmldata_v2/20260914T194134/organizations_22102025_training_v7/data/*.parquet
+  data_handlers:
+  - name: tokenize_and_apply_chat_template_with_masking
+    arguments:
+      remove_columns: all
+      batched: false
+      fn_kwargs:
+        conversation_column: messages
+- name: tuning_data_installations
+  split:
+    train: 0.9
+    validation: 0.1
+  data_paths:
+  - /proj/granite-build/g4os/defense/defense_xmldata_v2/20260914T194134/installations_21112025_training_v9/data/*.parquet
+  data_handlers:
+  - name: tokenize_and_apply_chat_template_with_masking
+    arguments:
+      remove_columns: all
+      batched: false
+      fn_kwargs:
+        conversation_column: messages
+- name: tuning_data_non_state_groups
+  split:
+    train: 0.9
+    validation: 0.1
+  data_paths:
+  - /proj/granite-build/g4os/defense/defense_xmldata_v2/20260914T194134/nonstategroups_10102025_training_v2/data/*.parquet
+  data_handlers:
+  - name: tokenize_and_apply_chat_template_with_masking
+    arguments:
+      remove_columns: all
+      batched: false
+      fn_kwargs:
+        conversation_column: messages
+- name: tuning_data_ships
+  split:
+    train: 0.9
+    validation: 0.1
+  data_paths:
+  - /proj/granite-build/g4os/defense/defense_xmldata_v2/20260914T194134/ships_10102025_training_v2/data/*.parquet
+  data_handlers:
+  - name: tokenize_and_apply_chat_template_with_masking
+    arguments:
+      remove_columns: all
+      batched: false
+      fn_kwargs:
+        conversation_column: messages
+- name: tuning_data_events
+  split:
+    train: 0.9
+    validation: 0.1
+  data_paths:
+  - /proj/granite-build/g4os/defense/defense_xmldata_v2/20260914T194134/events_16102025_training_v3/data/*.parquet
+  data_handlers:
+  - name: tokenize_and_apply_chat_template_with_masking
+    arguments:
+      remove_columns: all
+      batched: false
+      fn_kwargs:
+        conversation_column: messages
+- name: tuning_data_analysis
+  split:
+    train: 0.9
+    validation: 0.1
+  data_paths:
+  - /proj/granite-build/g4os/defense/defense_xmldata_v2/20260914T194134/analysis_14102025_training_v10/data/*.parquet
+  data_handlers:
+  - name: tokenize_and_apply_chat_template_with_masking
+    arguments:
+      remove_columns: all
+      batched: false
+      fn_kwargs:
+        conversation_column: messages
+- name: tuning_data_profiles
+  split:
+    train: 0.9
+    validation: 0.1
+  data_paths:
+  - /proj/granite-build/g4os/defense/defense_xmldata_v2/20260914T194134/profiles_10102025_training_v2/data/*.parquet
+  data_handlers:
+  - name: tokenize_and_apply_chat_template_with_masking
+    arguments:
+      remove_columns: all
+      batched: false
+      fn_kwargs:
+        conversation_column: messages
+- name: tuning_data_news
+  split:
+    train: 0.9
+    validation: 0.1
+  data_paths:
+  - /proj/granite-build/g4os/defense/defense_xmldata_v2/20260914T194134/news_14102025_training_v3/data/*.parquet
+  data_handlers:
+  - name: tokenize_and_apply_chat_template_with_masking
+    arguments:
+      remove_columns: all
+      batched: false
+      fn_kwargs:
+        conversation_column: messages

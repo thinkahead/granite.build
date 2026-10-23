@@ -1,0 +1,48 @@
+# sftlora-g42-3b (SLURM) — see build.yaml's header. Override any value with --param KEY=VALUE.
+
+# ─── Inputs on /proj ─────────────────────────────────────────────────────
+# granite-4.2-3b (dense GraniteForCausalLM; tokenizer.json md5 7dbe6ec6, identical
+# to the HF hub snapshot the Vela build pulled).
+MODEL_URI: "env:///proj/granite-build/g4os/kd-sandbox/model_copies/granite-4.2-3b"
+# Vela /gb-read-write/karve/xmldata_v2 -> DATA_V2_ROOT, /gb-read-write/karve/xmldata -> DATA_V1_ROOT.
+DATA_V2_ROOT: "/proj/granite-build/g4os/defense/defense_xmldata_v2/20260914T194134"
+DATA_V1_ROOT: "/proj/granite-build/g4os/defense/defense_xmldata/20260914T194247"
+
+# ─── Outputs ─────────────────────────────────────────────────────────────
+# One directory per build: <OUTPUT_ROOT>/<build_id>/<EXPERIMENT>/{checkpoint-N,final}.
+OUTPUT_ROOT: "/proj/granite-build/g4os/defense/runs"
+EXPERIMENT: "sftlora_g42_3b_v2_odm_90_10_entropy_xml"
+
+# ─── Training ────────────────────────────────────────────────────────────
+MAX_STEPS: 5000
+EVAL_STEPS: 250
+ODM_UPDATE_INTERVAL: 250
+SAVE_STEPS: 1000
+LEARNING_RATE: "1e-04"
+PER_DEVICE_TRAIN_BATCH_SIZE: 5
+MAX_SEQ_LENGTH: 8192
+LORA_R: 16
+LORA_ALPHA: 32
+LORA_DROPOUT: 0.1
+
+# ─── Topology and resources ──────────────────────────────────────────────
+NUM_NODES: 1
+NUM_GPUS_PER_NODE: 8
+ACCELERATORS: "H200:8"
+# 64 of 96 CPUs so the task spans both sockets and sees all 8 GPUs
+# (gpu:h200:8(S:0-1) — a one-socket task sees only 4).
+GPU_CPUS: 64
+MEMORY: 256
+CLUSTER: "bluevela"
+# gpu-high (2-day MaxTime) because gpu-mid has no free nodes; gpu-high denies
+# qos=normal, so it needs QOS. For gpu-mid: --param QUEUE=gpu-mid --param QOS="".
+QUEUE: "gpu-high"
+QOS: "grp_granite_dot_build_high_1n"
+# Must be <= the partition MaxTime (gpu-high 2-00:00:00; gpu-mid 7-00:00:00).
+TIME_LIMIT: "2-00:00:00"
+ENVIRONMENT_URI: "space://environments/skypilot/slurm/ibm-bluevela"
+
+# ─── Retries / monitoring ────────────────────────────────────────────────
+MAX_RETRIES: 0
+POLL_INTERVAL_SECONDS: 300
+LOG_RETRIEVAL_INTERVAL_SECONDS: 300

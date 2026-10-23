@@ -1,0 +1,305 @@
+name: tuning-slurm
+version: 1.0.0
+# fms-hf-tuning SFT / LoRA (`accelerate launch -m tuning.sft_trainer`) on BlueVela
+# SLURM, via the SkyPilot SLURM cloud.
+#
+# SLURM PORT of the k8s/LSF `tuning` step (granite-dot-build/assets steps/tuning).
+# The config surface is the same — tuning_config, tuning_data_config, fsdp_config,
+# accelerate_config, compute_config, trainer_controller_config — and flags are
+# rendered with the same conventions as that step's helm helpers
+# (tplSftTrainerConfigFilled / tplAccelerateFlags), so a Vela build's step config
+# carries over unchanged. What differs:
+#   * Topology comes from SkyPilot's SLURM contract (SKYPILOT_NODE_RANK /
+#     _NUM_NODES / _NODE_IPS / _NUM_GPUS_PER_NODE), not the k8s PyTorchJob
+#     RANK/WORLD_SIZE/MASTER_ADDR. `run` executes once per node; each node launches
+#     accelerate with its own machine_rank.
+#   * The k8s `k8s.setupcommands` list is `setup_commands` here, and the k8s
+#     `k8s.env` map is `launcher_config.envs`. setup_commands run on EVERY node,
+#     inside the container, before accelerate. SkyPilot creates the pyxis container
+#     with --container-writable, so in-place `sed -i` patches of site-packages work.
+#   * Outputs go to `output_root` on /proj (shared FS), not /gb-read-write, and are
+#     registered with GB_ARTIFACT_ID markers as env:// paths (no lakehouse push).
+#   * BlueVela IB NCCL tuning is exported inline (the SLURM env has no
+#     nccl_tuning_file), same pins as distill/gold-slurm.
+type: tuning
+config:
+  # Interpreter inside the image. The fms-hf-tuning image installs into the system
+  # python3.12 (/usr/local/lib/python3.12/dist-packages), not a venv.
+  python: "/usr/bin/python3"
+  # Root of this run's outputs. EMPTY => $GB_BUILD_WORKDIR/tuning (per-run workdir,
+  # reaped with the build tree). Set an absolute /proj path to keep checkpoints.
+  # Must be under the env's SkyPilot workdir (/proj/granite-build/g4os on BlueVela)
+  # to be visible inside the container.
+  output_root: ""
+  # Names the output subdirectory and is passed as sft_trainer --experiment.
+  experiment: "tuning"
+  # Bash commands run on every node, in the container, before accelerate.
+  setup_commands: []
+  # Monitor.
+  poll_interval_seconds: 300
+  log_retrieval_mode: periodic
+  log_retrieval_interval_seconds: 300
+  compute_config:
+    num_nodes: 1
+    num_gpus_per_node: 8
+  # Defaults copied from the k8s tuning step's values.yaml (minus k8s-only keys:
+  # aim/clearml trackers, /gb-read-write paths).
+  tuning_config:
+    use_flash_attn: "true"
+    include_tokens_per_second: "true"
+    num_train_epochs: "1.0"
+    per_device_train_batch_size: "1"
+    gradient_accumulation_steps: "1"
+    gradient_checkpointing: "true"
+    gradient_checkpointing_kwargs: '{"use_reentrant": true}'
+    learning_rate: "5e-05"
+    logging_steps: "50"
+    logging_strategy: "steps"
+    trackers:
+      - "file_logger"
+    max_seq_length: "4096"
+    bf16: "true"
+    resume_from_checkpoint: "true"
+  fsdp_config:
+    use_fsdp: "true"
+    fsdp_auto_wrap_policy: "TRANSFORMER_BASED_WRAP"
+    fsdp_forward_prefetch: "false"
+    fsdp_offload_params: "false"
+    fsdp_sharding_strategy: "HYBRID_SHARD"
+    fsdp_state_dict_type: "FULL_STATE_DICT"
+    fsdp_cpu_ram_efficient_loading: "true"
+    fsdp_sync_module_states: "true"
+  # num_machines / machine_rank / main_process_ip / main_process_port /
+  # num_processes come from the allocation; set here they are ignored.
+  accelerate_config:
+    rdzv_backend: "static"
+    same_network: true
+    mixed_precision: "bf16"
+    dynamo_backend: "no"
+  # Same controller as the k8s step: prints the checkpoint lines and per-step loss.
+  trainer_controller_config:
+    controller_metrics:
+      - name: trainer_state
+        class: TrainingState
+      - name: training_loss
+        class: Loss
+      - name: per_process_state
+        class: PerProcessState
+    operations:
+      - name: logger_on_log
+        class: LogControl
+        arguments:
+          log_format: 'Epoch: {trainer_state[epoch]:.0f}, Step: {trainer_state[global_step]}, Rank: {per_process_state[rank]}, loss = {training_loss}'
+          log_level: info
+      - name: logger_on_save
+        class: LogControl
+        arguments:
+          log_format: 'Intermediate checkpoint saved in {hf_path}'
+          log_level: info
+      - name: logger_on_save_final
+        class: LogControl
+        arguments:
+          log_format: 'Final checkpoint saved in {hf_path}'
+          log_level: info
+    controllers:
+      - name: ctrl-on-log-format
+        triggers:
+          - on_log
+        rule: 'training_loss != None'
+        operations:
+          - logger_on_log.should_log
+      - name: ctrl-on-save-format
+        triggers:
+          - on_save
+        rule: '(per_process_state["rank"] == None or per_process_state["rank"] == 0) and trainer_state["is_final"] == False'
+        operations:
+          - logger_on_save.should_log
+      - name: ctrl-on-save-format-final
+        triggers:
+          - on_save
+        rule: '(per_process_state["rank"] == None or per_process_state["rank"] == 0) and trainer_state["is_final"] == True'
+        operations:
+          - logger_on_save_final.should_log
+
+inputs:
+  allow_unknown: true
+  optional:
+    model_to_tune:
+      type: model
+      accept: [uri, binding]
+    tuning_data:
+      type: dataset
+      accept: [uri, binding]
+
+outputs:
+  optional:
+    # save_model_dir: the final model (a LoRA ADAPTER when peft_method=lora).
+    final_checkpoint:
+      type: model
+    # output_dir: the HF checkpoint-<N> dirs (with optimizer state).
+    intermediate_checkpoint_with_optimizer_state:
+      type: model
+    training_logs_jsonl:
+      type: dataset
+
+environment_configs:
+  Skypilot:
+    subtypes:
+      - slurm
+    default_launcher: tuning
+    launchers:
+      tuning:
+        type: skypilot
+        monitors:
+          - skypilot_monitor
+        config:
+          # Pre-staged enroot squashfs of us.icr.io/cil15-shared-registry/fms-hf-tuning:6mar2026-a66092d5c01
+          # (the k8s tuning step's default image). pyxis mounts it directly.
+          image_id: "docker:/proj/granite-build/g4os/enroot/us.icr.io-cil15-shared-registry-fms-hf-tuning-6mar2026-a66092d5c01.sqsh"
+          resources: {}
+          file_mounts:
+            src: src
+          envs:
+            # Node-local: the HF datasets cache then never needs GPFS-safe locking.
+            HF_HOME: /tmp/hf_home
+            TOKENIZERS_PARALLELISM: "true"
+            CUDA_DEVICE_MAX_CONNECTIONS: "1"
+            TORCH_NCCL_ASYNC_ERROR_HANDLING: "1"
+            TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC: "600"
+            USE_LIBUV: "0"
+            OMP_NUM_THREADS: "16"
+          run: |
+            WORK="${GB_BUILD_WORKDIR:-$PWD}"
+            PYBIN="{{ config.python }}"
+
+            # ── BlueVela multi-node NCCL over InfiniBand (same pins as distill/gold-slurm) ──
+            export NCCL_IB_DISABLE="${GB_NCCL_IB_DISABLE:-0}"
+            export NCCL_IB_HCA="^=mlx5_1,mlx5_6"
+            export NCCL_SOCKET_IFNAME="=ibp26s0,ibp60s0,ibp77s0,ibp94s0,ibp156s0,ibp188s0,ibp204s0,ibp220s0"
+            export NCCL_IB_PCI_RELAXED_ORDERING=2
+            export NCCL_IB_ADAPTIVE_ROUTING=1
+            export NCCL_CROSS_NIC=2
+            export NCCL_IB_QPS_PER_CONNECTION=2
+            export NCCL_IB_TIMEOUT=30
+            export NCCL_IB_RETRY_CNT=20
+            export NCCL_CHECKS_DISABLE=1
+            export NCCL_CHECK_POINTERS=0
+            export NCCL_IGNORE_CPU_AFFINITY=1
+            export NCCL_IB_SPLIT_DATA_ON_QPS=0
+            export NCCL_ASYNC_ERROR_HANDLING=1
+            # GPUDirect-RDMA off by default inside pyxis (see gold-slurm for the hang
+            # it avoids); GB_NCCL_GDR_LEVEL="" re-enables it.
+            if [ -n "${GB_NCCL_GDR_LEVEL+x}" ]; then
+              [ -n "$GB_NCCL_GDR_LEVEL" ] && export NCCL_NET_GDR_LEVEL="$GB_NCCL_GDR_LEVEL"
+            else
+              export NCCL_NET_GDR_LEVEL=0
+            fi
+            export TRITON_CACHE_DIR="/tmp/triton_${SLURM_PROCID:-0}"
+
+            # ── Topology from SkyPilot's SLURM provisioner ──
+            NODE_RANK="${SKYPILOT_NODE_RANK:-0}"
+            NODES="${SKYPILOT_NUM_NODES:-1}"
+            GPUS="${SKYPILOT_NUM_GPUS_PER_NODE:-{{ config.compute_config.num_gpus_per_node }}}"
+            MADDR="$(printf '%s\n' "${SKYPILOT_NODE_IPS:-}" | tr ' ,' '\n\n' | grep -v '^$' | head -1)"
+            [ -z "$MADDR" ] && MADDR="127.0.0.1"
+            MPORT="${MASTER_PORT:-29500}"
+            unset RANK WORLD_SIZE LOCAL_RANK MASTER_ADDR MASTER_PORT
+            echo "tuning-slurm: node $NODE_RANK/$NODES gpus=$GPUS master=$MADDR:$MPORT host=$(hostname)"
+
+            # ── Outputs ──
+            OUT_ROOT="{{ config.output_root | string | trim }}"
+            [ -z "$OUT_ROOT" ] && OUT_ROOT="$WORK/tuning"
+            EXP="{{ config.experiment }}"
+            OUTPUT_DIR="$OUT_ROOT/$EXP"
+            SAVE_MODEL_DIR="$OUTPUT_DIR/final"
+            mkdir -p "$OUTPUT_DIR"
+
+            # ── Per-node setup commands (in-container patches etc.) ──
+            {% for cmd in config.setup_commands %}
+            {{ cmd }}
+            {% endfor %}
+
+            # ── Render configs + the launch command (per node: machine_rank differs) ──
+            CFG_DIR="$WORK/tuning-config-rank${NODE_RANK}"
+            mkdir -p "$CFG_DIR"
+            cat > "$CFG_DIR/step_config.json" <<'GB_TUNING_CONFIG_EOF'
+            {"tuning_config": {{ config.tuning_config | json_dumps }}, "fsdp_config": {{ config.fsdp_config | default({}) | json_dumps }}, "accelerate_config": {{ config.accelerate_config | default({}) | json_dumps }}}
+            GB_TUNING_CONFIG_EOF
+            DATA_CFG=""
+            {% if config.tuning_data_config is defined and config.tuning_data_config %}
+            cat > "$CFG_DIR/tuning_data_config.json" <<'GB_TUNING_DATA_EOF'
+            {{ config.tuning_data_config | json_dumps }}
+            GB_TUNING_DATA_EOF
+            "$PYBIN" -c 'import json,sys,yaml; yaml.safe_dump(json.load(open(sys.argv[1])), open(sys.argv[2],"w"), sort_keys=False)' \
+              "$CFG_DIR/tuning_data_config.json" "$CFG_DIR/tuning_data_config.yaml"
+            DATA_CFG="$CFG_DIR/tuning_data_config.yaml"
+            {% endif %}
+            CTRL_CFG=""
+            {% if config.trainer_controller_config is defined and config.trainer_controller_config %}
+            cat > "$CFG_DIR/trainer_controller_config.json" <<'GB_TUNING_CTRL_EOF'
+            {{ config.trainer_controller_config | json_dumps }}
+            GB_TUNING_CTRL_EOF
+            "$PYBIN" -c 'import json,sys,yaml; yaml.safe_dump(json.load(open(sys.argv[1])), open(sys.argv[2],"w"), sort_keys=False)' \
+              "$CFG_DIR/trainer_controller_config.json" "$CFG_DIR/trainer_controller_config.yaml"
+            CTRL_CFG="$CFG_DIR/trainer_controller_config.yaml"
+            {% endif %}
+
+            "$PYBIN" ./src/render_tuning_cmd.py \
+              --config-json "$CFG_DIR/step_config.json" \
+              --python "$PYBIN" \
+              --nodes "$NODES" --gpus-per-node "$GPUS" --node-rank "$NODE_RANK" \
+              --master-ip "$MADDR" --master-port "$MPORT" \
+              --output-dir "$OUTPUT_DIR" --save-model-dir "$SAVE_MODEL_DIR" \
+              --experiment "$EXP" \
+              --model "{{ bindings.model_to_tune.binding.path if bindings.model_to_tune is defined else '' }}" \
+              --data-config "$DATA_CFG" --controller-config "$CTRL_CFG" \
+              --out "$CFG_DIR/launch.sh"
+            if [ "$NODE_RANK" = "0" ]; then
+              echo "tuning-slurm: data config:"; cat "$DATA_CFG" 2>/dev/null || true
+              echo "tuning-slurm: launch command:"; cat "$CFG_DIR/launch.sh"
+            fi
+
+            # ── Train ──
+            # Redirect to a file (not a pipe) and follow it, so a straggler worker can
+            # never wedge the shell on a held-open pipe at multi-node shutdown.
+            TRAIN_LOG="$OUTPUT_DIR/train_rank${NODE_RANK}.log"
+            : > "$TRAIN_LOG"
+            bash "$CFG_DIR/launch.sh" > "$TRAIN_LOG" 2>&1 &
+            ACC_PID=$!
+            tail -n +1 -F --pid="$ACC_PID" "$TRAIN_LOG" 2>/dev/null || true
+            RC=0
+            wait "$ACC_PID" || RC=$?
+            echo "tuning-slurm: rank $NODE_RANK accelerate exit code $RC"
+            if [ "$RC" != "0" ]; then
+              echo "tuning-slurm: FATAL: training failed (full log: $TRAIN_LOG)" >&2
+              exit "$RC"
+            fi
+
+            # Rank 0 only: every node's output streams into one driver log.
+            if [ "$NODE_RANK" = "0" ]; then
+              if [ ! -d "$SAVE_MODEL_DIR" ] || [ -z "$(ls -A "$SAVE_MODEL_DIR" 2>/dev/null)" ]; then
+                echo "tuning-slurm: FATAL: accelerate exited 0 but $SAVE_MODEL_DIR is empty." >&2
+                exit 1
+              fi
+              echo "GB_ARTIFACT_ID:final_checkpoint GB_ARTIFACT_PATH:${SAVE_MODEL_DIR}"
+              echo "GB_ARTIFACT_ID:intermediate_checkpoint_with_optimizer_state GB_ARTIFACT_PATH:${OUTPUT_DIR}"
+              if [ -f "$OUTPUT_DIR/training_logs.jsonl" ]; then
+                echo "GB_ARTIFACT_ID:training_logs_jsonl GB_ARTIFACT_PATH:${OUTPUT_DIR}/training_logs.jsonl"
+              fi
+            fi
+    monitors:
+      skypilot_monitor:
+        ref: space://monitors/skypilot
+        config:
+          poll_interval_seconds: "{{ config.poll_interval_seconds | default(300) }}"
+          log_retrieval:
+            mode: "{{ config.log_retrieval_mode | default('periodic') }}"
+            interval_seconds: "{{ config.log_retrieval_interval_seconds | default(300) }}"
+          extra_event_configs:
+          - event_type: WORKLOAD_STATUS_EVENT
+            line_regex: "Epoch: .*, Step: .*loss = "
+            event_fields:
+              - field_name: status
+                field_value_template: "RUNNING"
+              - field_name: message
+                field_regex: "Epoch: .*"

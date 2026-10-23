@@ -1,0 +1,45 @@
+controller_metrics:
+- name: trainer_state
+  class: TrainingState
+- name: training_loss
+  class: Loss
+- name: per_process_state
+  class: PerProcessState
+operations:
+- name: logger_on_log
+  class: LogControl
+  arguments:
+    log_format: 'Epoch: {trainer_state[epoch]:.0f}, Step: {trainer_state[global_step]},
+      Rank: {per_process_state[rank]}, loss = {training_loss}'
+    log_level: info
+- name: logger_on_save
+  class: LogControl
+  arguments:
+    log_format: Intermediate checkpoint saved in {hf_path}
+    log_level: info
+- name: logger_on_save_final
+  class: LogControl
+  arguments:
+    log_format: Final checkpoint saved in {hf_path}
+    log_level: info
+controllers:
+- name: ctrl-on-log-format
+  triggers:
+  - on_log
+  rule: training_loss != None
+  operations:
+  - logger_on_log.should_log
+- name: ctrl-on-save-format
+  triggers:
+  - on_save
+  rule: (per_process_state["rank"] == None or per_process_state["rank"] == 0) and
+    trainer_state["is_final"] == False
+  operations:
+  - logger_on_save.should_log
+- name: ctrl-on-save-format-final
+  triggers:
+  - on_save
+  rule: (per_process_state["rank"] == None or per_process_state["rank"] == 0) and
+    trainer_state["is_final"] == True
+  operations:
+  - logger_on_save_final.should_log
