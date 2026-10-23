@@ -30,6 +30,8 @@ config:
   name: "eval"
   eval_config:
     script: "unitxt_benchmarks/defense/defense_unitxt_evaluation_with_profile.py"
+    # EMPTY => not exported, so the script's own default applies (Vela's
+    # custom_knowledge sets neither).
     dataset_names: ""
     tools: ""
     batch_size: 10
@@ -93,7 +95,6 @@ environment_configs:
             src: src
           envs:
             HF_HOME: /tmp/hf_home
-            VLLM_WORKER_MULTIPROC_METHOD: spawn
             TOKENIZERS_PARALLELISM: "false"
           run: |
             WORK="${GB_BUILD_WORKDIR:-$PWD}"
@@ -172,8 +173,8 @@ environment_configs:
               MODEL_NAME="$MODEL" \
               BATCH_SIZE="{{ config.eval_config.batch_size }}" \
               OUTPUT_PATH="$OUTPUT_PATH" \
-              DATASET_NAMES="{{ config.eval_config.dataset_names }}" \
-              TOOLS="{{ config.eval_config.tools }}" \
+              {% if config.eval_config.dataset_names %}DATASET_NAMES="{{ config.eval_config.dataset_names }}" {% endif %}\
+              {% if config.eval_config.tools %}TOOLS="{{ config.eval_config.tools }}" {% endif %}\
               "$PYBIN" "{{ config.eval_config.script }}" > "$EVAL_LOG" 2>&1 &
             EVAL_PID=$!
             tail -n +1 -F --pid="$EVAL_PID" "$EVAL_LOG" 2>/dev/null || true
