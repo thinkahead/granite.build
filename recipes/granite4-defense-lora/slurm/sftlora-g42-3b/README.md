@@ -37,5 +37,5 @@ Outputs land in `/proj/granite-build/g4os/defense/runs/<build_id>/sftlora_g42_3b
 | Build | Steps | Result |
 |---|---|---|
 | job 299620 (direct `sbatch`, no granite.build; see [`smoke/`](smoke/README.md)) | 20 | adapter written, 2.3 s/step |
-| `625d7bcb` | 50 | cancelled: run step had 1 CPU, 41 s/step |
 | `26ae041d` | 50 | **SUCCESS**: 2.32 s/step, `train_runtime` 1695 s, 3 outputs registered |
+| `cd2bfbc2` | 5000 | **SUCCESS**: 2.08–2.13 s/step, `train_runtime` 41321 s (11h29m), checkpoints 1000–5000 + `final/` |

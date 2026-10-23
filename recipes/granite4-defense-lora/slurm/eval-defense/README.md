@@ -120,4 +120,4 @@ categories took ~6–10 min each once running. Change the partition with
 | Build | Model | What | Result |
 |---|---|---|---|
 | `70fd7a88` | `cd2bfbc2` `final/` | merge + 12 tool-calling | SUCCESS, mean 0.731 |
-| `3b599f96` | `cd2bfbc2` `final/` | merge + 2 knowledge | running |
+| `0ec74008` | `cd2bfbc2` `final/` | merge (skipped, reused) + 2 knowledge | SUCCESS, knowledge 0.633, knowledge_with_tools 0.452 |
