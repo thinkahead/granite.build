@@ -36,7 +36,7 @@
   ("tuning_data_news", "news_14102025_training_v3"),
 ] %>
 granite.build:
-  name: sftlora_g42_3b_v2_odm_90_10_entropy_xml_slurm
+  name: $${EXPERIMENT}_slurm
   retries:
     max_retries: $${MAX_RETRIES}
   targets:
@@ -59,6 +59,7 @@ granite.build:
       steps:
         - step_uri: space://steps/tuning-slurm
           config:
+            python: "$${PYTHON}"
             output_root: "$${OUTPUT_ROOT}/{{ run_metadata.build_id }}"
             experiment: "$${EXPERIMENT}"
             poll_interval_seconds: $${POLL_INTERVAL_SECONDS}
@@ -68,6 +69,7 @@ granite.build:
               num_gpus_per_node: $${NUM_GPUS_PER_NODE}
               num_cpus_per_node: $${GPU_CPUS}
             launcher_config:
+              image_id: "$${IMAGE_ID}"
               sbatch_options:
                 time: "$${TIME_LIMIT}"
 <% if QOS | string | trim != "" %>
@@ -150,7 +152,7 @@ granite.build:
               learning_rate: '$${LEARNING_RATE}'
               weight_decay: '0.1'
               gradient_checkpointing: true
-              gradient_accumulation_steps: 1
+              gradient_accumulation_steps: $${GRADIENT_ACCUMULATION_STEPS}
               # per_device_EVAL_batch_size MUST stay 1 (padding-free eval/ODM collator).
               per_device_train_batch_size: $${PER_DEVICE_TRAIN_BATCH_SIZE}
               per_device_eval_batch_size: 1
@@ -181,19 +183,34 @@ granite.build:
               fsdp_cpu_ram_efficient_loading: true
               fsdp_use_orig_params: "true"
             setup_commands:
-              # GPFS-safe filelock (fcntl.lockf + no unlink-on-release). HF_HOME is node-local
-              # /tmp here, but the patch is kept for parity with the Vela run.
-              - sed -i s/fcntl.flock/fcntl.lockf/ /usr/local/lib/python3.12/dist-packages/filelock/_unix.py
-              - perl -0777 -i -pe 's/\n {12}with suppress\(OSError\):\n {16}Path\(self\.lock_file\)\.unlink\(\)//' /usr/local/lib/python3.12/dist-packages/filelock/_unix.py
-              - echo "FILELOCK_PATCH_APPLIED lockf=$(grep -c fcntl.lockf /usr/local/lib/python3.12/dist-packages/filelock/_unix.py) unlink=$(grep -c 'unlink()' /usr/local/lib/python3.12/dist-packages/filelock/_unix.py)"
-              - grep -q "fcntl.lockf" /usr/local/lib/python3.12/dist-packages/filelock/_unix.py
-              - test "$(grep -c 'unlink()' /usr/local/lib/python3.12/dist-packages/filelock/_unix.py)" = 2
-              - sed -i "s|self.log_file_path =.*$|self.log_file_path = '/tmp/odm.jsonl'|g" /usr/local/lib/python3.12/dist-packages/fms_acceleration_odm/odm/dataset.py
-              # ODM entropy-reward normalization: vocab_size 32000 -> granite-4.2's 100352.
-              - sed -i 's/vocab_size=32000/vocab_size=100352/g' /usr/local/lib/python3.12/dist-packages/fms_acceleration_odm/odm/dataset.py
-              - test "$(grep -c 'vocab_size=100352' /usr/local/lib/python3.12/dist-packages/fms_acceleration_odm/odm/dataset.py)" = 2
-              # ODM MAB numerical stability (renormalize weights + clamp exp exponent).
-              - perl -0777 -i -pe 's{        return self\._update_sampling_ratio\(self\.sampling_weights\)}{        self.sampling_weights = self.sampling_weights / self.sampling_weights.max()\n        return self._update_sampling_ratio(self.sampling_weights)}' /usr/local/lib/python3.12/dist-packages/fms_acceleration_odm/odm/dataset.py
-              - perl -0777 -i -pe 's{self\.eta \* est_r / self\.total_categories}{min(self.eta * est_r / self.total_categories, 30.0)}' /usr/local/lib/python3.12/dist-packages/fms_acceleration_odm/odm/dataset.py
-              - grep -q "sampling_weights.max()" /usr/local/lib/python3.12/dist-packages/fms_acceleration_odm/odm/dataset.py
-              - grep -q "min(self.eta" /usr/local/lib/python3.12/dist-packages/fms_acceleration_odm/odm/dataset.py
+              # Paths come from the step: $FILELOCK_UNIX, $ODM_DATASET (resolved per image).
+              # --- GPFS-safe filelock (Vela patch), filelock 3.x only ---
+              # 3.x: use POSIX byte-range locks (fcntl.lockf) and stop unlinking the lock
+              # file on release (create/unlink churn races O_CREAT on GPFS). filelock 4.x
+              # (quay.io/modh/fms-hf-tuning:v3.2.2 ships 4.0.8) rewrote _unix.py and treats
+              # that ENOENT race as transient contention, so the patch is skipped there.
+              # HF_HOME is node-local /tmp either way.
+              - |
+                FL_MAJOR="$("$PYBIN" -c 'import filelock;print(filelock.__version__.split(".")[0])')"
+                if [ "$FL_MAJOR" -lt 4 ]; then
+                  sed -i s/fcntl.flock/fcntl.lockf/ "$FILELOCK_UNIX"
+                  $PATCH_FILE "$FILELOCK_UNIX" '\n            with suppress(OSError):\n                Path(self.lock_file).unlink()' '' --min 1
+                  echo "FILELOCK_PATCH_APPLIED lockf=$(grep -c fcntl.lockf "$FILELOCK_UNIX") unlink=$(grep -c 'unlink()' "$FILELOCK_UNIX")"
+                  grep -q "fcntl.lockf" "$FILELOCK_UNIX"
+                  test "$(grep -c 'unlink()' "$FILELOCK_UNIX")" = 2
+                else
+                  echo "FILELOCK_PATCH_SKIPPED filelock major=$FL_MAJOR (handles the GPFS O_CREAT race natively)"
+                fi
+              - sed -i "s|self.log_file_path =.*$|self.log_file_path = '/tmp/odm.jsonl'|g" "$ODM_DATASET"
+              # ODM entropy-reward normalization: vocab_size=32000 -> granite-4.2's 100352 at
+              # every call site (2 in fms-acceleration-odm 0.1.5, 3 in 0.1.6); none may remain.
+              - sed -i 's/vocab_size=32000/vocab_size=100352/g' "$ODM_DATASET"
+              - test "$(grep -c 'vocab_size=100352' "$ODM_DATASET")" -ge 2
+              - test "$(grep -c 'vocab_size=32000' "$ODM_DATASET")" = 0
+              # ODM MAB numerical stability (renormalize weights each update + clamp exp exponent).
+              # $PATCH_FILE = exact-string replace with an occurrence guard (step's src/patch_file.py;
+              # the v3.2.2 image has no perl).
+              - $PATCH_FILE "$ODM_DATASET" '        return self._update_sampling_ratio(self.sampling_weights)' '        self.sampling_weights = self.sampling_weights / self.sampling_weights.max()\n        return self._update_sampling_ratio(self.sampling_weights)' --count 1 --skip-if-present 'self.sampling_weights / self.sampling_weights.max()'
+              - $PATCH_FILE "$ODM_DATASET" 'self.eta * est_r / self.total_categories' 'min(self.eta * est_r / self.total_categories, 30.0)' --count 1 --skip-if-present 'min(self.eta * est_r'
+              - grep -q "sampling_weights.max()" "$ODM_DATASET"
+              - grep -q "min(self.eta" "$ODM_DATASET"

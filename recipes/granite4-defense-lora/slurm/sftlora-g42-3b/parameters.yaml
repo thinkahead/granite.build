@@ -8,6 +8,17 @@ MODEL_URI: "env:///proj/granite-build/g4os/kd-sandbox/model_copies/granite-4.2-3
 DATA_V2_ROOT: "/proj/granite-build/g4os/defense/defense_xmldata_v2/20260914T194134"
 DATA_V1_ROOT: "/proj/granite-build/g4os/defense/defense_xmldata/20260914T194247"
 
+# ─── Trainer image ───────────────────────────────────────────────────────
+# Pre-staged enroot squashfs on /proj (pyxis mounts it directly). Both work with this
+# recipe; PYTHON must match the image.
+#   6mar2026 : us.icr.io/cil15-shared-registry/fms-hf-tuning:6mar2026-a66092d5c01 (k8s
+#              `tuning` step default; validated: builds 26ae041d, cd2bfbc2)
+#              -> PYTHON=/usr/bin/python3
+#   v3.2.2   : quay.io/modh/fms-hf-tuning:v3.2.2 (torch 2.8.0, accelerate 1.15.0, peft 0.19.1,
+#              fms-acceleration-odm 0.1.6, filelock 4.0.8) -> PYTHON=/usr/bin/python
+IMAGE_ID: "docker:/proj/granite-build/g4os/enroot/us.icr.io-cil15-shared-registry-fms-hf-tuning-6mar2026-a66092d5c01.sqsh"
+PYTHON: "/usr/bin/python3"
+
 # ─── Outputs ─────────────────────────────────────────────────────────────
 # One directory per build: <OUTPUT_ROOT>/<build_id>/<EXPERIMENT>/{checkpoint-N,final}.
 OUTPUT_ROOT: "/proj/granite-build/g4os/defense/runs"
@@ -20,6 +31,8 @@ ODM_UPDATE_INTERVAL: 250
 SAVE_STEPS: 1000
 LEARNING_RATE: "1e-04"
 PER_DEVICE_TRAIN_BATCH_SIZE: 5
+# Effective batch = PER_DEVICE_TRAIN_BATCH_SIZE x GRADIENT_ACCUMULATION_STEPS x NUM_NODES x 8.
+GRADIENT_ACCUMULATION_STEPS: 1
 MAX_SEQ_LENGTH: 8192
 LORA_R: 16
 LORA_ALPHA: 32

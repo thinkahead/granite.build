@@ -23,8 +23,8 @@ version: 1.0.0
 #     nccl_tuning_file), same pins as distill/gold-slurm.
 type: tuning
 config:
-  # Interpreter inside the image. The fms-hf-tuning image installs into the system
-  # python3.12 (/usr/local/lib/python3.12/dist-packages), not a venv.
+  # Interpreter inside the image. fms-hf-tuning:6mar2026 has /usr/bin/python3;
+  # quay.io/modh/fms-hf-tuning:v3.2.2 has only /usr/bin/python (-> python3.12).
   python: "/usr/bin/python3"
   # Root of this run's outputs. EMPTY => $GB_BUILD_WORKDIR/tuning (per-run workdir,
   # reaped with the build tree). Set an absolute /proj path to keep checkpoints.
@@ -214,6 +214,18 @@ environment_configs:
             SAVE_MODEL_DIR="$OUTPUT_DIR/final"
             mkdir -p "$OUTPUT_DIR"
 
+            # Install paths differ per image (fms-hf-tuning:6mar2026 uses the system
+            # /usr/local/lib/python3.12/dist-packages; quay.io/modh/fms-hf-tuning:v3.2.2 the
+            # tuning user's ~/.local). Export them so setup_commands need not hardcode either.
+            SITE_PACKAGES="$("$PYBIN" -c 'import tuning,os;print(os.path.dirname(os.path.dirname(tuning.__file__)))')"
+            export SITE_PACKAGES
+            export FILELOCK_UNIX="$SITE_PACKAGES/filelock/_unix.py"
+            export ODM_DATASET="$SITE_PACKAGES/fms_acceleration_odm/odm/dataset.py"
+            # Exact-string patcher for setup_commands (some images have no perl).
+            PATCH_FILE="$PYBIN $PWD/src/patch_file.py"
+            export PATCH_FILE
+            echo "tuning-slurm: site-packages $SITE_PACKAGES"
+
             # ── Per-node setup commands (in-container patches etc.) ──
             {% for cmd in config.setup_commands %}
             {{ cmd }}
@@ -262,13 +274,26 @@ environment_configs:
             # ── Train ──
             # Redirect to a file (not a pipe) and follow it, so a straggler worker can
             # never wedge the shell on a held-open pipe at multi-node shutdown.
+            # One log per node, on /proj next to the checkpoints:
+            #   train_rank<N>.log        raw accelerate stdout+stderr of that node (all its ranks)
+            #   train_rank<N>.clean.log  same, with progress-bar redraws collapsed (written live)
             TRAIN_LOG="$OUTPUT_DIR/train_rank${NODE_RANK}.log"
+            CLEAN_LOG="$OUTPUT_DIR/train_rank${NODE_RANK}.clean.log"
+            CLEAN_STOP="$CFG_DIR/.clean-log-stop"
+            rm -f "$CLEAN_STOP"
             : > "$TRAIN_LOG"
+            echo "tuning-slurm: rank $NODE_RANK logs: $TRAIN_LOG (raw), $CLEAN_LOG (clean)"
             bash "$CFG_DIR/launch.sh" > "$TRAIN_LOG" 2>&1 &
             ACC_PID=$!
+            "$PYBIN" ./src/clean_log.py "$TRAIN_LOG" "$CLEAN_LOG" --stop-file "$CLEAN_STOP" &
+            CLEAN_PID=$!
             tail -n +1 -F --pid="$ACC_PID" "$TRAIN_LOG" 2>/dev/null || true
             RC=0
             wait "$ACC_PID" || RC=$?
+            # Let the cleaner drain the tail of the raw log, then stop it. Never fail
+            # the run over the clean copy.
+            touch "$CLEAN_STOP"
+            wait "$CLEAN_PID" 2>/dev/null || echo "tuning-slurm: WARNING: clean log writer exited non-zero; $TRAIN_LOG is complete" >&2
             echo "tuning-slurm: rank $NODE_RANK accelerate exit code $RC"
             if [ "$RC" != "0" ]; then
               echo "tuning-slurm: FATAL: training failed (full log: $TRAIN_LOG)" >&2
