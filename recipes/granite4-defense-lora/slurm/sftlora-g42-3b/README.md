@@ -42,11 +42,39 @@ GB_ENVIRONMENT=STANDALONE PATH=$HOME/.local/bin:$PATH .venv/bin/gb build start \
 - **Model dir.** `teacher_overlays/granite-4.2-30b-slurm` holds real bf16 weights on `/proj`; its
   `chat_template.jinja` defaults thinking off (original kept as `.bak_thinking`).
 
-### Logs (one set per node)
+### Logs
 
-In the run's output dir, for each node rank N: `train_rank<N>.log` (raw accelerate output of that
-node) and `train_rank<N>.clean.log` (the same with progress-bar redraws collapsed, written live,
-~2% of the raw size). `tail -f train_rank0.clean.log` to follow a run.
+Everything is on `/proj` (readable from any BlueVela login node). With `B=<build_id>`,
+`EXP=<EXPERIMENT>` (e.g. `sftlora_g42_30b_v2_odm_90_10_entropy_xml`) and `N` = node rank
+(0 … NUM_NODES-1):
+
+| Log | Path | What |
+|---|---|---|
+| **Training, per node (raw)** | `/proj/granite-build/g4os/defense/runs/$B/$EXP/train_rank<N>.log` | Full accelerate stdout+stderr of node N (all 8 of its ranks): loss lines, eval, ODM, tracebacks. Mostly tqdm redraws, so use `tail -f` (not `less`) on it |
+| **Training, per node (clean)** | `…/$EXP/train_rank<N>.clean.log` | Same, progress-bar redraws collapsed (~2% of the raw size), written live. **Best file to follow a run** |
+| Loss / eval history | `…/$EXP/training_logs.jsonl` | One JSON row per logged step (`training_loss`, step, timestamp). Rank 0 only |
+| Trainer config + exact launch command | `/proj/granite-build/g4os/gbtest/builds/builds/$B/runs/<targetrun_id>/tuning-config-rank<N>/` | `launch.sh`, `tuning_data_config.yaml`, `trainer_controller_config.yaml`, `step_config.json` |
+| Whole-step output (all nodes, SkyPilot) | `/proj/granite-build/g4os/.sky_clusters/<cluster>/sky_logs/1-<task>/run.log` | Setup + both nodes interleaved, each line prefixed `(head, rank=0 …)` / `(worker1, rank=1 …)` |
+| sbatch script + its stdout | `/proj/granite-build/g4os/.sky_provision/<cluster>.sh`, `slurm-<jobid>.out` | Container start-up; look here if the job never reaches the trainer |
+| gbserver (build orchestration) | `~/gbserver-standalone/gbserver.log` on the gbserver host | Launches, retries, artifact registration, build status |
+
+The cluster name is `gb-<build name>-<target>-<launch id>-…`; find it, and the SLURM job id, with
+`squeue --me -o "%i %T %j"` on a login node.
+
+```bash
+B=e8ff9ccf-33e4-4ddf-980f-a2369ebbd0cb; EXP=sftlora_g42_30b_v2_odm_90_10_entropy_xml
+O=/proj/granite-build/g4os/defense/runs/$B/$EXP
+tail -f $O/train_rank0.clean.log                            # follow node 0
+grep "Epoch: .*Step:" $O/train_rank0.clean.log | tail       # latest losses
+grep -E "Traceback|OutOfMemory" $O/train_rank*.log          # errors on any node
+```
+
+**Retries (preemption) restart these files.** gpu-mid is preemptible (`PreemptMode=REQUEUE`).
+With `MAX_RETRIES` > 0 a preempted run is relaunched into the same `$O`, and each attempt
+**truncates** `train_rank<N>.log` / `.clean.log` and starts writing them again. The trainer then
+resumes from the newest `checkpoint-<N>` (look for `fast-forwarding your dataset by <N> steps`
+near the top). A `tail -f` started before a retry stops updating once the file is truncated: use
+`tail -F` (capital F), which reopens it. Copy the old file first if you need the pre-preemption log.
 
 Outputs land in `/proj/granite-build/g4os/defense/runs/<build_id>/sftlora_g42_3b_v2_odm_90_10_entropy_xml/`:
 `final/` (the LoRA adapter; merge with the base before vLLM eval), `checkpoint-<N>/`
