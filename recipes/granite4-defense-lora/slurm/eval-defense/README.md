@@ -36,8 +36,8 @@ GB_ENVIRONMENT=STANDALONE PATH=$HOME/.local/bin:$PATH .venv/bin/gb build start \
 
 ### granite-4.2-30b checkpoints
 
-Same build, plus the 30b base. Use gpu-mid, because gpu-high's QOS caps the account at 8 GPUs,
-i.e. 4 categories at a time:
+Same build, plus the 30b base. gpu-mid shown here (16-GPU cap); see "Which queue" below for
+gpu-high:
 
 ```bash
 RUN=/proj/granite-build/g4os/defense/runs/e8ff9ccf-33e4-4ddf-980f-a2369ebbd0cb/sftlora_g42_30b_v2_odm_90_10_entropy_xml
@@ -74,6 +74,48 @@ done
   the other, not both.
 - **Disk:** each merged 30b checkpoint is ~55 GB (`$RUN/merged_checkpoint-<N>/`). Delete them
   after the evals if you're short of space; a later eval re-merges.
+
+### Which queue: gpu-high vs gpu-mid
+
+Two parameters pick where the jobs run: `QUEUE` (the SLURM **partition**) and `QOS`. The partition
+is what `squeue` shows in the `PARTITION` column; the QOS is a separate scheduling limit.
+
+| Option | Params | GPU limit for the account | Time limit | Preemptible | Use for |
+|---|---|---|---|---|---|
+| **gpu-high** (recipe default) | `QUEUE=gpu-high` + `QOS=grp_granite_dot_build_high_1n` (default) | **8 GPUs** in total = 4 categories at 2 GPUs each | 2 days | yes (`REQUEUE`), but highest priority tier | one eval build; starts fastest |
+| **gpu-mid** | `--param QUEUE=gpu-mid --param QOS=` | **16 GPUs** in total (`grp_granite_dot_build_medium`) = 8 categories | 7 days | yes | several eval builds at once, or when gpu-high is full |
+
+```bash
+# gpu-high (default), nothing to add:
+GB_ENVIRONMENT=STANDALONE PATH=$HOME/.local/bin:$PATH .venv/bin/gb build start \
+  -f recipes/granite4-defense-lora/slurm/eval-defense/build.yaml --skip-version-check \
+  --param ADAPTER_PATH=$RUN/checkpoint-4000 --param NAME=eval_g42nt_lora_3b_cd2bfbc2_4000
+
+# gpu-mid:
+GB_ENVIRONMENT=STANDALONE PATH=$HOME/.local/bin:$PATH .venv/bin/gb build start \
+  -f recipes/granite4-defense-lora/slurm/eval-defense/build.yaml --skip-version-check \
+  --param ADAPTER_PATH=$RUN/checkpoint-4000 --param NAME=eval_g42nt_lora_3b_cd2bfbc2_4000 \
+  --param QUEUE=gpu-mid --param QOS=
+```
+
+**`QOS=normal` does not work for this account.** The sbatch line is passed through
+(`#SBATCH --qos=normal`), but BlueVela's job-submit plugin rewrites it to the account's default,
+`grp_granite_dot_build_medium`, so the job lands under the same 16-GPU cap as `QOS=` (seen on build
+`2c467ec4`, 2026-10-25). There is no uncapped GPU QOS for `grp_granite_dot_build` on gpu-mid.
+
+**Both limits are shared account-wide, not per build.** The 16 gpu-mid GPUs are shared with
+anything else the account runs under `grp_granite_dot_build_medium`, including training: a
+2-node training run needs all 16, so it cannot start while gpu-mid evals hold any of them, and
+evals queue (`QOSGrpGRES`) behind it. Put evals on gpu-high while a 2-node training run is
+queued or running on gpu-mid.
+
+Check which partition and QOS a job got:
+
+```bash
+squeue --me -o "%i %P %q %T %R %j" | grep eval-g42nt     # partition, QOS, state, pending reason
+```
+
+`(QOSGrpGRES)` as the reason means the QOS GPU cap is full, not that the partition is busy.
 
 ### Merge only
 
@@ -179,10 +221,10 @@ Details are in the `defense-eval-slurm` README.
 
 ## Resources and timing
 
-Each category: 2 × H200 on `gpu-high`, vLLM TP=2, as on Vela. The gpu-high QOS allows
-8 GPUs at a time, so 4 categories run at once and the rest queue. The 12 tool-calling
-categories took ~6–10 min each once running. Change the partition with
-`--param QUEUE=gpu-mid --param QOS=""`.
+Each category: 2 × H200, vLLM TP=2, as on Vela. How many run at once is limited by the QOS GPU
+cap (see "Which queue": 4 categories on gpu-high, 8 on gpu-mid) and by gbserver starting at most
+4 SkyPilot clusters at a time (`GBSERVER_SKYPILOT_LAUNCH_CONCURRENCY`, default 4). The 12
+tool-calling categories take ~6–10 min each on 3b once running, longer on 30b.
 
 ## Checkpoint comparison: granite-4.2-30b LoRA (`e8ff9ccf`)
 
