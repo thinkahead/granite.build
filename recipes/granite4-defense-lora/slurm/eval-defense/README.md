@@ -393,48 +393,52 @@ failed on a SkyPilot start-up error (unreadable runtime wheel) and was rerun as 
 
 ## Checkpoint comparison: granite-4.2-8b LoRA (`99f8bbec`, in progress)
 
-Checkpoints 1000, 2000 and 3000 of the 5000-step 8b run (2 nodes, effective batch 80, eval/ODM
-every 500), each on all 14 categories, 2026-10-25, while training continued. The same steps of
-the 3b and 30b runs are shown for reference. Scores are `subsets_mean`. **Bold** = best 8b
-checkpoint.
+Checkpoints 1000–4000 of the 5000-step 8b run (2 nodes, effective batch 80, eval/ODM every 500),
+each on all 14 categories, 2026-10-25, while training continued. The 3b and 30b at step 4000 are
+shown for reference. Scores are `subsets_mean`. **Bold** = best 8b checkpoint.
 
-| Category | 8b 1000 | 8b 2000 | 8b 3000 | 3b 2000 | 3b 3000 | 30b 2000 | 30b 3000 |
-|---|---|---|---|---|---|---|---|
-| inventory | 0.793 | 0.904 | **0.937** | 0.820 | 0.896 | 0.917 | 0.935 |
-| router | 0.885 | 0.915 | **0.932** | 0.906 | 0.914 | 0.932 | 0.929 |
-| nonstategroups | 0.840 | 0.859 | **0.893** | 0.836 | 0.854 | 0.865 | 0.886 |
-| news | 0.681 | 0.754 | **0.823** | 0.709 | 0.800 | 0.797 | 0.864 |
-| profiles | 0.721 | **0.768** | 0.767 | 0.746 | 0.718 | 0.746 | 0.811 |
-| analysis | 0.666 | 0.746 | **0.748** | 0.685 | 0.732 | 0.753 | 0.782 |
-| military | 0.702 | 0.702 | **0.765** | 0.665 | 0.669 | 0.768 | 0.812 |
-| organization | 0.673 | 0.707 | **0.726** | 0.679 | 0.679 | 0.697 | 0.716 |
-| installations | 0.635 | 0.666 | **0.690** | 0.618 | 0.670 | 0.663 | 0.705 |
-| ships | **0.694** | 0.683 | 0.693 | 0.668 | 0.653 | 0.698 | 0.697 |
-| equipment | **0.582** | 0.570 | 0.560 | 0.614 | 0.565 | 0.549 | 0.544 |
-| events | **0.236** | 0.228 | 0.233 | 0.228 | 0.214 | 0.227 | 0.219 |
-| knowledge | 0.647 | 0.646 | **0.682** | 0.670 | 0.631 | 0.667 | 0.666 |
-| knowledge_with_tools | 0.449 | **0.488** | 0.468 | 0.404 | 0.443 | 0.425 | 0.461 |
-| **Mean, 12 tool-calling** | 0.676 | 0.709 | **0.731** | 0.681 | 0.697 | 0.718 | 0.742 |
-| **Mean, 2 knowledge** | 0.548 | 0.567 | **0.575** | 0.537 | 0.537 | 0.546 | 0.564 |
-| **Mean, all 14** | 0.657 | 0.688 | **0.708** | 0.660 | 0.674 | 0.693 | 0.716 |
+| Category | 8b 1000 | 8b 2000 | 8b 3000 | 8b 4000 | 3b 4000 | 30b 4000 |
+|---|---|---|---|---|---|---|
+| inventory | 0.793 | 0.904 | 0.937 | **0.945** | 0.931 | 0.951 |
+| router | 0.885 | 0.915 | 0.932 | **0.937** | 0.927 | 0.938 |
+| nonstategroups | 0.840 | 0.859 | 0.893 | **0.896** | 0.883 | 0.909 |
+| news | 0.681 | 0.754 | 0.823 | **0.843** | 0.826 | 0.851 |
+| profiles | 0.721 | 0.768 | 0.767 | **0.780** | 0.787 | 0.769 |
+| analysis | 0.666 | 0.746 | 0.748 | **0.759** | 0.758 | 0.763 |
+| military | 0.702 | 0.702 | 0.765 | **0.797** | 0.748 | 0.819 |
+| organization | 0.673 | 0.707 | 0.726 | **0.747** | 0.712 | 0.737 |
+| installations | 0.635 | 0.666 | 0.690 | **0.696** | 0.682 | 0.689 |
+| ships | **0.694** | 0.683 | 0.693 | 0.658 | 0.656 | 0.700 |
+| equipment | **0.582** | 0.570 | 0.560 | 0.574 | 0.583 | 0.572 |
+| events | **0.236** | 0.228 | 0.233 | 0.234 | 0.226 | 0.225 |
+| knowledge | 0.647 | 0.646 | **0.682** | 0.639 | 0.650 | 0.700 |
+| knowledge_with_tools | 0.449 | **0.488** | 0.468 | 0.397 | 0.472 | 0.425 |
+| **Mean, 12 tool-calling** | 0.676 | 0.709 | 0.731 | **0.739** | 0.727 | 0.744 |
+| **Mean, 2 knowledge** | 0.548 | 0.567 | **0.575** | 0.518 | 0.561 | 0.563 |
+| **Mean, all 14** | 0.657 | 0.688 | **0.708** | 0.707 | 0.703 | 0.718 |
 
 **Reading it:**
 
-- **Still climbing.** Tool-calling mean 0.676 → 0.709 → **0.731**. 2000 → 3000 is +0.022, up in
-  10 of 12 categories (paired t = 3.1); 1000 → 2000 was +0.033 (t = 2.9). The biggest 2000 → 3000
-  moves are news (+0.07), military (+0.06), nonstategroups and inventory (+0.03).
-- **8b sits between 3b and 30b at the same step**, closer to the 30b: at 3000 it is +0.034 over the
-  3b and −0.011 below the 30b (up in 6 of 12, paired t = −1.6, so not significant). 8b 3000
-  already matches the 3b final (0.731).
-- **Same weak spots**: events stays ≈0.23 and equipment ≈0.56–0.58, flat or slightly down with
-  steps, as on 3b and 30b.
-- Checkpoints 4000 and 5000 are still to come; the 30b flattened from 3000, so expect smaller
-  gains from here.
+- **Flattening at 3000–4000, like the 30b.** Tool-calling mean 0.676 → 0.709 → 0.731 → **0.739**.
+  3000 → 4000 is only +0.008 (up in 11 of 12 categories but paired t = 1.8), vs +0.033 and +0.022
+  for the two earlier steps. The exception is ships, down 0.035 at 4000 (test split 0.654 → 0.589),
+  the clearest sign of over-training so far.
+- **8b ≈ 30b at step 4000 on tool calling**: −0.005 (t = −1.1, not significant), and above the 3b
+  by +0.012 (10 of 12 categories, t = 2.6). The 8b is level with or ahead of the 30b on
+  organization, installations, profiles and events, and behind on military, ships and
+  nonstategroups.
+- **Knowledge dropped at 4000** (knowledge_with_tools 0.468 → 0.397, knowledge 0.682 → 0.639). These
+  are 147 LLM-judged questions each, so ±0.04 is noise, but the drop is consistent with the 3b's
+  slow erosion of free-text answers under tool-calling SFT. All-14 mean is therefore flat
+  (0.708 → 0.707).
+- **Same weak spots**: events ≈0.23, equipment ≈0.57, flat across all checkpoints and model sizes.
+- **Recommendation so far:** **checkpoint-4000** for tool calling, **checkpoint-3000** if knowledge
+  answers matter as much. Checkpoint 5000 is still to come.
 
 Results: `/proj/granite-build/g4os/defense/evals/eval_g42nt_lora_8b_99f8bbec_<step>/<category>/`.
-Builds (gpu-low): `07d7d141` (1000), `36aa183d` (2000), `5befa15e` (3000). 2000/inventory and
-2000/ships died at vLLM load on `p1-r13-n3` and were rerun elsewhere (`2645a7a3`, `f1c1e7cd`); that
-node is now in `EXCLUDE_NODES`.
+Builds (gpu-low): `07d7d141` (1000), `36aa183d` (2000), `5befa15e` (3000), `f8573b39` (4000).
+2000/inventory and 2000/ships died at vLLM load on `p1-r13-n3` and were rerun elsewhere
+(`2645a7a3`, `f1c1e7cd`); that node is now in `EXCLUDE_NODES`.
 
 ## Runs
 
