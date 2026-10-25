@@ -118,6 +118,7 @@ done
 
 For the 30b, add `--param BASE_MODEL_PATH=/proj/granite-build/g4os/kd-sandbox/teacher_overlays/granite-4.2-30b-slurm`
 to any of these.
+For the 8b, add `--param BASE_MODEL_PATH=/proj/granite-build/g4os/kd-sandbox/model_copies/granite-4.2-8b`.
 
 **Notes:**
 

@@ -29,7 +29,8 @@ GB_ENVIRONMENT=STANDALONE PATH=$HOME/.local/bin:$PATH .venv/bin/gb build start \
   --param EXPERIMENT=sftlora_g42_30b_v2_odm_90_10_entropy_xml \
   --param NUM_NODES=2 --param QUEUE=gpu-mid --param QOS= --param TIME_LIMIT=7-00:00:00 \
   --param PER_DEVICE_TRAIN_BATCH_SIZE=5 --param GRADIENT_ACCUMULATION_STEPS=1 \
-  --param EVAL_STEPS=1000 --param ODM_UPDATE_INTERVAL=1000 --param SAVE_STEPS=1000
+  --param EVAL_STEPS=1000 --param ODM_UPDATE_INTERVAL=1000 \
+  --param SAVE_STEPS=250 --param MAX_RETRIES=3
 ```
 
 - **Batch.** Effective = per-device × grad-accum × nodes × 8: 5 × 1 × 2 × 8 = 80 (Vela's 30b was
@@ -41,6 +42,24 @@ GB_ENVIRONMENT=STANDALONE PATH=$HOME/.local/bin:$PATH .venv/bin/gb build start \
 - **Speed.** ~9.4 s/step at batch 5 on 2 nodes (7.7 s/step at batch 3).
 - **Model dir.** `teacher_overlays/granite-4.2-30b-slurm` holds real bf16 weights on `/proj`; its
   `chat_template.jinja` defaults thinking off (original kept as `.bak_thinking`).
+
+### granite-4.2-8b (2 nodes, gpu-mid)
+
+```bash
+GB_ENVIRONMENT=STANDALONE PATH=$HOME/.local/bin:$PATH .venv/bin/gb build start \
+  -f recipes/granite4-defense-lora/slurm/sftlora-g42-3b/build.yaml --skip-version-check \
+  --param MODEL_URI=env:///proj/granite-build/g4os/kd-sandbox/model_copies/granite-4.2-8b \
+  --param EXPERIMENT=sftlora_g42_8b_v2_odm_90_10_entropy_xml \
+  --param NUM_NODES=2 --param QUEUE=gpu-mid --param QOS= --param TIME_LIMIT=7-00:00:00 \
+  --param PER_DEVICE_TRAIN_BATCH_SIZE=5 --param GRADIENT_ACCUMULATION_STEPS=1 --param MAX_STEPS=5000 \
+  --param EVAL_STEPS=500 --param ODM_UPDATE_INTERVAL=500 \
+  --param SAVE_STEPS=250 --param MAX_RETRIES=3
+```
+
+- **Batch.** 5 × 1 × 2 × 8 = 80, same as the 30b.
+- **Speed.** ~3.6 s/step averaged over the first 2650 steps, including eval + ODM passes every 500 steps.
+- **Preemption.** `SAVE_STEPS=250` + `MAX_RETRIES=3`: a preempted run resumes from the last checkpoint
+  (same for the 30b).
 
 ### Logs
 
