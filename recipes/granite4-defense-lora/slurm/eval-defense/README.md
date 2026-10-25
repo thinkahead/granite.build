@@ -341,10 +341,60 @@ Builds: `ffdb7ee2` (1000), `cdd03325` (2000), `24a99365` (3000), `71d48c77` (400
 on other nodes: `bece7095` (1000 installations), `b2510fbd` (3000 military), `14329026`
 (4000 knowledge_with_tools). Those nodes are now in `EXCLUDE_NODES`.
 
+## Checkpoint comparison: granite-4.2-3b LoRA (`cd2bfbc2`)
+
+Five checkpoints of the 5000-step 3b run (1 node, effective batch 40, eval/ODM every 250), each
+on all 14 categories, 2026-10-25. The 30b's best checkpoint (4000) is the last column for
+reference. Scores are `subsets_mean`. **Bold** = best 3b checkpoint.
+
+| Category | 3b 1000 | 3b 2000 | 3b 3000 | 3b 4000 | 3b 5000 (= final) | 30b 4000 (ref) |
+|---|---|---|---|---|---|---|
+| inventory | 0.669 | 0.820 | 0.896 | 0.931 | **0.938** | 0.951 |
+| router | 0.874 | 0.906 | 0.914 | 0.927 | **0.931** | 0.938 |
+| nonstategroups | 0.766 | 0.836 | 0.854 | 0.883 | **0.884** | 0.909 |
+| news | 0.561 | 0.709 | 0.800 | 0.826 | **0.832** | 0.851 |
+| profiles | 0.622 | 0.746 | 0.718 | 0.787 | **0.802** | 0.769 |
+| analysis | 0.681 | 0.685 | 0.732 | 0.758 | **0.773** | 0.763 |
+| military | 0.612 | 0.665 | 0.669 | 0.748 | **0.755** | 0.819 |
+| organization | 0.647 | 0.679 | 0.679 | **0.712** | 0.708 | 0.737 |
+| installations | 0.579 | 0.618 | 0.670 | 0.682 | **0.691** | 0.689 |
+| ships | 0.648 | **0.668** | 0.653 | 0.656 | 0.656 | 0.700 |
+| equipment | 0.490 | **0.614** | 0.565 | 0.583 | 0.575 | 0.572 |
+| events | 0.190 | 0.228 | 0.214 | 0.226 | **0.230** | 0.225 |
+| knowledge | **0.675** | 0.670 | 0.631 | 0.650 | 0.633 | 0.700 |
+| knowledge_with_tools | 0.442 | 0.404 | 0.443 | **0.472** | 0.452 | 0.425 |
+| **Mean, 12 tool-calling** | 0.612 | 0.681 | 0.697 | 0.727 | **0.731** | 0.744 |
+| **Mean, 2 knowledge** | 0.558 | 0.537 | 0.537 | **0.561** | 0.543 | 0.563 |
+| **Mean, all 14** | 0.604 | 0.660 | 0.674 | 0.703 | **0.704** | 0.718 |
+
+**Reading it:**
+
+- **Still climbing at the end.** Unlike the 30b, which flattens from 3000, the 3b improves
+  steadily: tool-calling mean 0.612 → 0.681 → 0.697 → 0.727 → **0.731** (5000). Most of the gain
+  is early (1000 → 2000: +0.07), and 4000 → 5000 is within noise (+0.004). The 3b's final
+  score (0.731) falls between the 30b's 2000 (0.718) and 3000 (0.742) checkpoints.
+- **The 30b is better at the same step.** 30b 4000 beats 3b 4000 by +0.017 on the tool-calling
+  mean; it's ahead on 9 of 12 categories, most on military (+0.071), ships (+0.044) and
+  nonstategroups (+0.026). The 3b is ahead on profiles (+0.018) and equipment (+0.011), the
+  two categories where the 30b peaked early, and level on events.
+- **Knowledge doesn't track training.** Both knowledge categories are flat to slightly down
+  across 3b checkpoints (knowledge 0.675 at 1000 → 0.633 at 5000). The tool-calling SFT doesn't
+  improve free-text defense answers, and may slightly erode them. These use 30 + 117 questions
+  judged by an LLM, so differences under ~0.04 are noise.
+- **Events stays at ≈0.19–0.23 throughout**, as on 30b: not a capacity or training-length issue.
+- **Recommendation:** use the **3b final** (= checkpoint-5000). For a longer 3b run, the curve
+  suggests a little more headroom, but most of it is gone by 4000.
+
+Results: `/proj/granite-build/g4os/defense/evals/eval_g42nt_lora_3b_cd2bfbc2_<step>/<category>/`
+(`final` for 5000). Builds: `bd82679d` (1000, gpu-low), `e53de4e2` (2000, gpu-low), `bb153c64`
+(3000, gpu-low), `66c72d49` (4000, gpu-high), `70fd7a88` + `0ec74008` (final). 1000/equipment
+failed on a SkyPilot start-up error (unreadable runtime wheel) and was rerun as `94d437b2`.
+
 ## Runs
 
 | Build | Model | What | Result |
 |---|---|---|---|
 | `70fd7a88` | `cd2bfbc2` `final/` | merge + 12 tool-calling | SUCCESS, mean 0.731 |
 | `0ec74008` | `cd2bfbc2` `final/` | merge (skipped, reused) + 2 knowledge | SUCCESS, knowledge 0.633, knowledge_with_tools 0.452 |
-| `ffdb7ee2`, `cdd03325`, `24a99365`, `71d48c77`, `ae9f49bb` (+ reruns `bece7095`, `b2510fbd`, `14329026`) | 30b `e8ff9ccf` checkpoints 1000–5000 | merge + 14 categories each | SUCCESS; see "Checkpoint comparison" |
+| `ffdb7ee2`, `cdd03325`, `24a99365`, `71d48c77`, `ae9f49bb` (+ reruns `bece7095`, `b2510fbd`, `14329026`) | 30b `e8ff9ccf` checkpoints 1000–5000 | merge + 14 categories each | SUCCESS; see "Checkpoint comparison: granite-4.2-30b" |
+| `bd82679d`, `e53de4e2`, `bb153c64`, `66c72d49` (+ rerun `94d437b2`) | 3b `cd2bfbc2` checkpoints 1000–4000 | merge + 14 categories each | SUCCESS; see "Checkpoint comparison: granite-4.2-3b" |
