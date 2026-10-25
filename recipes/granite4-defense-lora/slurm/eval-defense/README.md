@@ -37,7 +37,7 @@ GB_ENVIRONMENT=STANDALONE PATH=$HOME/.local/bin:$PATH .venv/bin/gb build start \
 ### granite-4.2-30b checkpoints
 
 Same build, plus the 30b base. gpu-mid shown here (16-GPU cap); see "Which queue" below for
-gpu-high:
+gpu-high and gpu-low:
 
 ```bash
 RUN=/proj/granite-build/g4os/defense/runs/e8ff9ccf-33e4-4ddf-980f-a2369ebbd0cb/sftlora_g42_30b_v2_odm_90_10_entropy_xml
@@ -75,47 +75,75 @@ done
 - **Disk:** each merged 30b checkpoint is ~55 GB (`$RUN/merged_checkpoint-<N>/`). Delete them
   after the evals if you're short of space; a later eval re-merges.
 
-### Which queue: gpu-high vs gpu-mid
+### Which queue: gpu-high, gpu-low, gpu-mid
 
-Two parameters pick where the jobs run: `QUEUE` (the SLURM **partition**) and `QOS`. The partition
-is what `squeue` shows in the `PARTITION` column; the QOS is a separate scheduling limit.
+Two parameters pick where the jobs run: `QUEUE`, the SLURM **partition** (what `squeue` shows in
+`PARTITION`), and `QOS`, a separate scheduling limit. Each partition only accepts certain QOSes,
+so set both together:
 
-| Option | Params | GPU limit for the account | Time limit | Preemptible | Use for |
+| Queue | Params | GPU limit for the account | Time limit | Priority / preemption | Use for |
 |---|---|---|---|---|---|
-| **gpu-high** (recipe default) | `QUEUE=gpu-high` + `QOS=grp_granite_dot_build_high_1n` (default) | **8 GPUs** in total = 4 categories at 2 GPUs each | 2 days | yes (`REQUEUE`), but highest priority tier | one eval build; starts fastest |
-| **gpu-mid** | `--param QUEUE=gpu-mid --param QOS=` | **16 GPUs** in total (`grp_granite_dot_build_medium`) = 8 categories | 7 days | yes | several eval builds at once, or when gpu-high is full |
+| **gpu-high** (recipe default) | nothing (= `QUEUE=gpu-high QOS=grp_granite_dot_build_high_1n`) | **8 GPUs** total, i.e. 4 categories at 2 GPUs each | 2 days | highest tier (32768), `REQUEUE` | one eval build, starts fastest |
+| **gpu-low** | `--param QUEUE=gpu-low --param QOS=burst` | **none** (`burst` has no GPU cap) | 30 days (default 1 day; recipe asks 6 h) | lowest tier (5), `REQUEUE`: higher tiers can preempt it | several eval builds in parallel, alongside training |
+| **gpu-mid** | `--param QUEUE=gpu-mid --param QOS=` | **16 GPUs** total (`grp_granite_dot_build_medium`), shared with training | 7 days | middle tier (16384), `REQUEUE` | only when gpu-mid is otherwise idle |
+
+**gpu-high** (default, nothing to add):
 
 ```bash
-# gpu-high (default), nothing to add:
+RUN=/proj/granite-build/g4os/defense/runs/cd2bfbc2-f7f0-4252-a32d-119ea2c30d58/sftlora_g42_3b_v2_odm_90_10_entropy_xml
 GB_ENVIRONMENT=STANDALONE PATH=$HOME/.local/bin:$PATH .venv/bin/gb build start \
   -f recipes/granite4-defense-lora/slurm/eval-defense/build.yaml --skip-version-check \
   --param ADAPTER_PATH=$RUN/checkpoint-4000 --param NAME=eval_g42nt_lora_3b_cd2bfbc2_4000
-
-# gpu-mid:
-GB_ENVIRONMENT=STANDALONE PATH=$HOME/.local/bin:$PATH .venv/bin/gb build start \
-  -f recipes/granite4-defense-lora/slurm/eval-defense/build.yaml --skip-version-check \
-  --param ADAPTER_PATH=$RUN/checkpoint-4000 --param NAME=eval_g42nt_lora_3b_cd2bfbc2_4000 \
-  --param QUEUE=gpu-mid --param QOS=
 ```
 
-**`QOS=normal` does not work for this account.** The sbatch line is passed through
-(`#SBATCH --qos=normal`), but BlueVela's job-submit plugin rewrites it to the account's default,
-`grp_granite_dot_build_medium`, so the job lands under the same 16-GPU cap as `QOS=` (seen on build
-`2c467ec4`, 2026-10-25). There is no uncapped GPU QOS for `grp_granite_dot_build` on gpu-mid.
+**gpu-low** (`burst` QOS):
 
-**Both limits are shared account-wide, not per build.** The 16 gpu-mid GPUs are shared with
-anything else the account runs under `grp_granite_dot_build_medium`, including training: a
-2-node training run needs all 16, so it cannot start while gpu-mid evals hold any of them, and
-evals queue (`QOSGrpGRES`) behind it. Put evals on gpu-high while a 2-node training run is
-queued or running on gpu-mid.
+```bash
+GB_ENVIRONMENT=STANDALONE PATH=$HOME/.local/bin:$PATH .venv/bin/gb build start \
+  -f recipes/granite4-defense-lora/slurm/eval-defense/build.yaml --skip-version-check \
+  --param ADAPTER_PATH=$RUN/checkpoint-3000 --param NAME=eval_g42nt_lora_3b_cd2bfbc2_3000 \
+  --param QUEUE=gpu-low --param QOS=burst
+```
 
-Check which partition and QOS a job got:
+Several checkpoints on gpu-low, one build each, all in parallel:
+
+```bash
+for c in 1000 2000; do
+  GB_ENVIRONMENT=STANDALONE PATH=$HOME/.local/bin:$PATH .venv/bin/gb build start \
+    -f recipes/granite4-defense-lora/slurm/eval-defense/build.yaml --skip-version-check \
+    --param ADAPTER_PATH=$RUN/checkpoint-$c --param NAME=eval_g42nt_lora_3b_cd2bfbc2_$c \
+    --param QUEUE=gpu-low --param QOS=burst
+done
+```
+
+For the 30b, add `--param BASE_MODEL_PATH=/proj/granite-build/g4os/kd-sandbox/teacher_overlays/granite-4.2-30b-slurm`
+to any of these.
+
+**Notes:**
+
+- **gpu-low needs `QOS=burst` explicitly**: it's the only QOS gpu-low allows, and it isn't the
+  account default. Verified on build `bb153c64` (2026-10-25): the merge started immediately as
+  `gpu-low burst`.
+- **gpu-low is preemptible by everything else.** An eval category that gets preempted fails; evals
+  don't resume. Rerun just that category: `... merge <category>` with the same `NAME` (see
+  "Choosing what runs"). Each category is only minutes, so the exposure is small.
+- **`QOS=normal` does not work for this account.** The sbatch line goes through
+  (`#SBATCH --qos=normal`), but BlueVela's job-submit plugin rewrites it to the account default,
+  `grp_granite_dot_build_medium`, the same 16-GPU cap as `QOS=` (build `2c467ec4`).
+- **The 16 gpu-mid GPUs are shared account-wide.** A 2-node training run needs all 16, so it can't
+  start while gpu-mid evals hold any, and evals queue (`QOSGrpGRES`) behind it. Run evals on
+  gpu-high or gpu-low while training is on gpu-mid.
+- **All three queues share one more limit:** gbserver starts at most 4 SkyPilot clusters at a time
+  (`GBSERVER_SKYPILOT_LAUNCH_CONCURRENCY`), so categories trickle into SLURM ~4 at a time whatever
+  the queue.
+
+Check which partition and QOS a job got, and why it's waiting:
 
 ```bash
 squeue --me -o "%i %P %q %T %R %j" | grep eval-g42nt     # partition, QOS, state, pending reason
 ```
 
-`(QOSGrpGRES)` as the reason means the QOS GPU cap is full, not that the partition is busy.
+`(QOSGrpGRES)` means the QOS GPU cap is full; `(Priority)` / `(Resources)` mean the partition is busy.
 
 ### Merge only
 

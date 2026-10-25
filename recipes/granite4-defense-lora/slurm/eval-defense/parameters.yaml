@@ -37,8 +37,10 @@ ACCELERATORS: "H200:2"
 GPU_CPUS: 16
 MEMORY: 128
 CLUSTER: "bluevela"
-# gpu-high: 8-GPU account cap (4 categories at once), starts fastest. For gpu-mid (16-GPU cap):
-# --param QUEUE=gpu-mid --param QOS=   (QOS=normal is rewritten to the medium QOS anyway).
+# gpu-high: 8-GPU account cap (4 categories at once), starts fastest.
+# gpu-low:  --param QUEUE=gpu-low --param QOS=burst   (no GPU cap; lowest priority, preemptible)
+# gpu-mid:  --param QUEUE=gpu-mid --param QOS=        (16-GPU cap shared with training;
+#           QOS=normal is rewritten to the medium QOS anyway)
 QUEUE: "gpu-high"
 QOS: "grp_granite_dot_build_high_1n"
 TIME_LIMIT: "6:00:00"
