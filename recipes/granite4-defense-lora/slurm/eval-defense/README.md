@@ -391,6 +391,48 @@ Results: `/proj/granite-build/g4os/defense/evals/eval_g42nt_lora_3b_cd2bfbc2_<st
 (3000, gpu-low), `66c72d49` (4000, gpu-high), `70fd7a88` + `0ec74008` (final). 1000/equipment
 failed on a SkyPilot start-up error (unreadable runtime wheel) and was rerun as `94d437b2`.
 
+## Checkpoint comparison: granite-4.2-8b LoRA (`99f8bbec`, in progress)
+
+Checkpoints 1000 and 2000 of the 5000-step 8b run (2 nodes, effective batch 80, eval/ODM every
+500), each on all 14 categories, 2026-10-25, while training continued. The same steps of the 3b
+and 30b runs are shown for reference. Scores are `subsets_mean`.
+
+| Category | 8b 1000 | 8b 2000 | 3b 1000 | 3b 2000 | 30b 1000 | 30b 2000 |
+|---|---|---|---|---|---|---|
+| inventory | 0.793 | **0.904** | 0.669 | 0.820 | 0.867 | 0.917 |
+| router | 0.885 | **0.915** | 0.874 | 0.906 | 0.885 | 0.932 |
+| nonstategroups | 0.840 | **0.859** | 0.766 | 0.836 | 0.820 | 0.865 |
+| news | 0.681 | **0.754** | 0.561 | 0.709 | 0.746 | 0.797 |
+| profiles | 0.721 | **0.768** | 0.622 | 0.746 | 0.768 | 0.746 |
+| analysis | 0.666 | **0.746** | 0.681 | 0.685 | 0.709 | 0.753 |
+| military | 0.702 | 0.702 | 0.612 | 0.665 | 0.698 | 0.768 |
+| organization | 0.673 | **0.707** | 0.647 | 0.679 | 0.698 | 0.697 |
+| installations | 0.635 | **0.666** | 0.579 | 0.618 | 0.655 | 0.663 |
+| ships | **0.694** | 0.683 | 0.648 | 0.668 | 0.706 | 0.698 |
+| equipment | **0.582** | 0.570 | 0.490 | 0.614 | 0.626 | 0.549 |
+| events | **0.236** | 0.228 | 0.190 | 0.228 | 0.240 | 0.227 |
+| knowledge | 0.647 | 0.646 | 0.675 | 0.670 | 0.653 | 0.667 |
+| knowledge_with_tools | 0.449 | **0.488** | 0.442 | 0.404 | 0.441 | 0.425 |
+| **Mean, 12 tool-calling** | 0.676 | **0.709** | 0.612 | 0.681 | 0.702 | 0.718 |
+| **Mean, 2 knowledge** | 0.548 | **0.567** | 0.558 | 0.537 | 0.547 | 0.546 |
+| **Mean, all 14** | 0.657 | **0.688** | 0.604 | 0.660 | 0.680 | 0.693 |
+
+**Reading it:**
+
+- **1000 → 2000 is a real gain**: +0.033 on the tool-calling mean, up in 8 of 12 categories
+  (paired t = 2.9). The biggest moves are inventory (+0.11), analysis (+0.08) and news (+0.07).
+- **8b sits between 3b and 30b at the same step**, closer to the 30b: at 2000 it is +0.028 over
+  the 3b and −0.009 below the 30b on the tool-calling mean. Same batch (80) and model family as the
+  30b, so this is mostly model size.
+- **Same weak spots**: events stays ≈0.23, equipment ≈0.57.
+- Checkpoints 3000–5000 are still to come; the 30b's curve suggests most of the remaining gain
+  lands by 3000–4000.
+
+Results: `/proj/granite-build/g4os/defense/evals/eval_g42nt_lora_8b_99f8bbec_<step>/<category>/`.
+Builds (gpu-low): `07d7d141` (1000), `36aa183d` (2000). 2000/inventory and 2000/ships died at vLLM
+load on `p1-r13-n3` and were rerun elsewhere (`2645a7a3`, `f1c1e7cd`); that node is now in
+`EXCLUDE_NODES`.
+
 ## Runs
 
 | Build | Model | What | Result |
