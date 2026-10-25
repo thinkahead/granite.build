@@ -48,13 +48,14 @@ granite.build:
               num_cpus_per_node: 16
             launcher_config:
               sbatch_options:
+                exclude: "$${EXCLUDE_NODES}"
                 time: "1:00:00"
 <% if QOS | string | trim != "" %>
                 qos: "$${QOS}"
 <% endif %>
               resources:
                 accelerators: "H200:1"
-                memory: 128
+                memory: $${MERGE_MEMORY}
                 cluster: "$${CLUSTER}"
                 zone: "$${QUEUE}"
 
@@ -89,6 +90,7 @@ granite.build:
               num_cpus_per_node: $${GPU_CPUS}
             launcher_config:
               sbatch_options:
+                exclude: "$${EXCLUDE_NODES}"
                 time: "$${TIME_LIMIT}"
 <% if QOS | string | trim != "" %>
                 qos: "$${QOS}"
@@ -130,6 +132,7 @@ granite.build:
               num_cpus_per_node: $${GPU_CPUS}
             launcher_config:
               sbatch_options:
+                exclude: "$${EXCLUDE_NODES}"
                 time: "$${TIME_LIMIT}"
 <% if QOS | string | trim != "" %>
                 qos: "$${QOS}"
@@ -171,6 +174,7 @@ granite.build:
               num_cpus_per_node: $${GPU_CPUS}
             launcher_config:
               sbatch_options:
+                exclude: "$${EXCLUDE_NODES}"
                 time: "$${TIME_LIMIT}"
 <% if QOS | string | trim != "" %>
                 qos: "$${QOS}"
@@ -212,6 +216,7 @@ granite.build:
               num_cpus_per_node: $${GPU_CPUS}
             launcher_config:
               sbatch_options:
+                exclude: "$${EXCLUDE_NODES}"
                 time: "$${TIME_LIMIT}"
 <% if QOS | string | trim != "" %>
                 qos: "$${QOS}"
@@ -253,6 +258,7 @@ granite.build:
               num_cpus_per_node: $${GPU_CPUS}
             launcher_config:
               sbatch_options:
+                exclude: "$${EXCLUDE_NODES}"
                 time: "$${TIME_LIMIT}"
 <% if QOS | string | trim != "" %>
                 qos: "$${QOS}"
@@ -294,6 +300,7 @@ granite.build:
               num_cpus_per_node: $${GPU_CPUS}
             launcher_config:
               sbatch_options:
+                exclude: "$${EXCLUDE_NODES}"
                 time: "$${TIME_LIMIT}"
 <% if QOS | string | trim != "" %>
                 qos: "$${QOS}"
@@ -335,6 +342,7 @@ granite.build:
               num_cpus_per_node: $${GPU_CPUS}
             launcher_config:
               sbatch_options:
+                exclude: "$${EXCLUDE_NODES}"
                 time: "$${TIME_LIMIT}"
 <% if QOS | string | trim != "" %>
                 qos: "$${QOS}"
@@ -376,6 +384,7 @@ granite.build:
               num_cpus_per_node: $${GPU_CPUS}
             launcher_config:
               sbatch_options:
+                exclude: "$${EXCLUDE_NODES}"
                 time: "$${TIME_LIMIT}"
 <% if QOS | string | trim != "" %>
                 qos: "$${QOS}"
@@ -417,6 +426,7 @@ granite.build:
               num_cpus_per_node: $${GPU_CPUS}
             launcher_config:
               sbatch_options:
+                exclude: "$${EXCLUDE_NODES}"
                 time: "$${TIME_LIMIT}"
 <% if QOS | string | trim != "" %>
                 qos: "$${QOS}"
@@ -458,6 +468,7 @@ granite.build:
               num_cpus_per_node: $${GPU_CPUS}
             launcher_config:
               sbatch_options:
+                exclude: "$${EXCLUDE_NODES}"
                 time: "$${TIME_LIMIT}"
 <% if QOS | string | trim != "" %>
                 qos: "$${QOS}"
@@ -499,6 +510,7 @@ granite.build:
               num_cpus_per_node: $${GPU_CPUS}
             launcher_config:
               sbatch_options:
+                exclude: "$${EXCLUDE_NODES}"
                 time: "$${TIME_LIMIT}"
 <% if QOS | string | trim != "" %>
                 qos: "$${QOS}"
@@ -540,6 +552,7 @@ granite.build:
               num_cpus_per_node: $${GPU_CPUS}
             launcher_config:
               sbatch_options:
+                exclude: "$${EXCLUDE_NODES}"
                 time: "$${TIME_LIMIT}"
 <% if QOS | string | trim != "" %>
                 qos: "$${QOS}"
@@ -595,6 +608,7 @@ granite.build:
               num_cpus_per_node: $${GPU_CPUS}
             launcher_config:
               sbatch_options:
+                exclude: "$${EXCLUDE_NODES}"
                 time: "$${TIME_LIMIT}"
 <% if QOS | string | trim != "" %>
                 qos: "$${QOS}"
