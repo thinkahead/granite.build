@@ -133,9 +133,13 @@ to any of these.
 - **The 16 gpu-mid GPUs are shared account-wide.** A 2-node training run needs all 16, so it can't
   start while gpu-mid evals hold any, and evals queue (`QOSGrpGRES`) behind it. Run evals on
   gpu-high or gpu-low while training is on gpu-mid.
-- **All three queues share one more limit:** gbserver starts at most 4 SkyPilot clusters at a time
-  (`GBSERVER_SKYPILOT_LAUNCH_CONCURRENCY`), so categories trickle into SLURM ~4 at a time whatever
-  the queue.
+- **gbserver limits start-ups, not running jobs.** At most 4 categories can be *starting up* at once,
+  whatever the queue (`GBSERVER_SKYPILOT_LAUNCH_CONCURRENCY`, default 4). A category holds a slot only
+  from `sky.launch` until its SLURM job starts (1–3 min), then frees it for the next. So new eval jobs
+  appear in SLURM a few at a time, but **any number can be running at once**; 8+ is normal. How many
+  run together is set by the QOS GPU cap above. To start them faster, start gbserver with e.g.
+  `GBSERVER_SKYPILOT_LAUNCH_CONCURRENCY=8`; the cost is more parallel SSH logins to the BlueVela
+  login nodes, which is why the default is 4.
 
 Check which partition and QOS a job got, and why it's waiting:
 
@@ -249,10 +253,12 @@ Details are in the `defense-eval-slurm` README.
 
 ## Resources and timing
 
-Each category: 2 × H200, vLLM TP=2, as on Vela. How many run at once is limited by the QOS GPU
-cap (see "Which queue": 4 categories on gpu-high, 8 on gpu-mid) and by gbserver starting at most
-4 SkyPilot clusters at a time (`GBSERVER_SKYPILOT_LAUNCH_CONCURRENCY`, default 4). The 12
-tool-calling categories take ~6–10 min each on 3b once running, longer on 30b.
+Each category: 2 × H200, vLLM TP=2, as on Vela. How many **run** at once is limited only by the
+QOS GPU cap (see "Which queue": 4 categories on gpu-high, 8 on gpu-mid, no cap on gpu-low).
+Separately, gbserver lets at most 4 categories **start up** at a time
+(`GBSERVER_SKYPILOT_LAUNCH_CONCURRENCY`, default 4). That only staggers how quickly jobs reach
+SLURM, not how many run. The 12 tool-calling categories take ~6–10 min each on 3b once running,
+longer on 30b.
 
 ## Checkpoint comparison: granite-4.2-30b LoRA (`e8ff9ccf`)
 
