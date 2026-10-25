@@ -48,7 +48,8 @@ TIME_LIMIT: "6:00:00"
 # environment's, so this must repeat the env's list (p1-r18-n1,p1-r10-n1) plus any extras.
 # p3-r10-n2 / p1-r30-n3: three 30b evals failed there on 2026-10-25 (vLLM died at load;
 # SkyPilot runtime unreadable; 2 GPUs allocated but 1 visible).
-EXCLUDE_NODES: "p1-r18-n1,p1-r10-n1,p3-r10-n2,p1-r30-n3"
+# p1-r13-n3: two 8b evals (ckpt 2000 inventory, ships) died silently at vLLM load, 2026-10-25.
+EXCLUDE_NODES: "p1-r18-n1,p1-r10-n1,p3-r10-n2,p1-r30-n3,p1-r13-n3"
 ENVIRONMENT_URI: "space://environments/skypilot/slurm/ibm-bluevela"
 
 # ─── Retries / monitoring ────────────────────────────────────────────────
