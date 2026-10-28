@@ -459,6 +459,61 @@ Builds (gpu-low): `07d7d141` (1000), `36aa183d` (2000), `5befa15e` (3000), `f857
 `befaf36c` (5000). 2000/inventory and 2000/ships died at vLLM load on `p1-r13-n3` and were rerun
 elsewhere (`2645a7a3`, `f1c1e7cd`); that node is now in `EXCLUDE_NODES`.
 
+## Checkpoint comparison: granite-swash-3b-a600m full fine-tune (`ade7bec1`)
+
+Six checkpoints of the 5000-step swash-3b full fine-tune (1 node, effective batch 40, eval/ODM every
+250; recipe [`sft-swash-3b`](../sft-swash-3b/README.md)), each on all 14 categories with this recipe
+(`MODEL_PATH` + the swash eval image), 2026-10-27/28. Swash is a **base** model (MoE, 3.02B total /
+~600M active). The 4.2 models' finals are the reference. **Bold** = best swash checkpoint.
+
+| Category | swash 500 | 1000 | 2000 | 3000 | 4000 | 5000 (= final) | 3b LoRA final | 8b LoRA final | 30b LoRA final |
+|---|---|---|---|---|---|---|---|---|---|
+| router | 0.802 | 0.887 | 0.893 | 0.924 | 0.936 | **0.940** | 0.931 | 0.947 | 0.941 |
+| inventory | 0.679 | 0.722 | 0.861 | 0.898 | 0.930 | **0.934** | 0.938 | 0.946 | 0.952 |
+| nonstategroups | 0.770 | 0.811 | 0.846 | 0.883 | **0.906** | 0.903 | 0.884 | 0.897 | 0.906 |
+| news | 0.548 | 0.613 | 0.751 | 0.819 | 0.833 | **0.837** | 0.832 | 0.841 | 0.848 |
+| profiles | 0.664 | 0.732 | 0.732 | 0.738 | 0.780 | **0.811** | 0.802 | 0.760 | 0.771 |
+| military | 0.601 | 0.592 | 0.678 | 0.754 | **0.808** | 0.805 | 0.755 | 0.808 | 0.825 |
+| analysis | 0.630 | 0.688 | 0.730 | 0.757 | **0.763** | 0.756 | 0.773 | 0.768 | 0.760 |
+| organization | 0.638 | 0.630 | 0.691 | 0.685 | **0.714** | 0.711 | 0.708 | 0.725 | 0.737 |
+| installations | 0.587 | 0.591 | 0.621 | 0.673 | 0.675 | **0.686** | 0.691 | 0.700 | 0.697 |
+| ships | **0.660** | 0.640 | 0.659 | **0.660** | 0.654 | 0.638 | 0.656 | 0.674 | 0.703 |
+| equipment | 0.521 | 0.486 | 0.530 | 0.542 | **0.568** | 0.548 | 0.575 | 0.574 | 0.563 |
+| events | 0.216 | 0.187 | 0.204 | 0.208 | **0.218** | 0.204 | 0.230 | 0.235 | 0.213 |
+| **Mean, 12 tool-calling** | 0.610 | 0.632 | 0.683 | 0.712 | **0.732** | 0.731 | 0.731 | 0.740 | 0.743 |
+| knowledge | 0.438 | 0.419 | **0.454** | 0.451 | 0.406 | 0.416 | 0.633 | 0.640 | 0.653 |
+| knowledge_with_tools | 0.405 | 0.427 | 0.408 | **0.458** | 0.435 | 0.435 | 0.452 | 0.437 | 0.433 |
+| **Mean, 2 knowledge** | 0.421 | 0.423 | 0.431 | **0.454** | 0.421 | 0.425 | 0.542 | 0.538 | 0.543 |
+| **Mean, all 14** | 0.583 | 0.602 | 0.647 | 0.675 | **0.688** | 0.687 | 0.704 | 0.711 | 0.714 |
+
+**Reading it:**
+
+- **Tool calling matches the 4.2 3b LoRA.** 0.732 at 4000 and 0.731 at 5000 = the 3b LoRA final
+  (0.731), 0.01 under the 8b and 30b. swash beats the 3b on military (+0.05), nonstategroups (+0.02)
+  and profiles (best of all models, 0.811) and trails on equipment, events and analysis (−0.01 to
+  −0.03). It plateaus from 4000, as the 30b did.
+- **Fast learner from a base model.** +0.12 on the tool-calling mean from 500 to 4000, most of it by
+  3000, reaching what the 4.2 3b LoRA (an instruct start) reaches in the same 5000 steps.
+- **Knowledge is the gap: flat ~0.41–0.45 at every checkpoint, ~0.2 below all three 4.2 models.** The
+  SFT data has no knowledge examples and swash is a base model, so it never gains the general
+  knowledge the 4.2 instruct models bring. knowledge_with_tools (rewards routing to the right tool)
+  is level with the 4.2 models. All-14 mean is therefore 0.688 (4000) / 0.687 (final) vs 0.704–0.714.
+- **Weak spots are shared by every model:** events ~0.20–0.23, equipment ~0.55–0.58.
+- **Recommendation:** checkpoint-4000 or `final/` for tool calling. For knowledge, use a 4.2 model, or
+  add knowledge data to swash's training mix.
+
+Results: `/proj/granite-build/g4os/defense/evals/eval_swash_3b_ade7bec1_<step>/<category>/`.
+Builds (gpu-mid): `5df38202` + `8565a6d5` (500; knowledge rerun after the `run_as_main.py` fix),
+`3173d686` (1000), `7d68fc45` (2000), `913701d7` + `d4c58beb` (3000; events rerun), `64dc4ef7`
+(4000), `fbdf40e0` (5000). A few categories needed the automatic retry (vLLM start-up failures on
+individual nodes), which recovered them.
+
+## Checkpoint comparison: granite-swash-2b full fine-tune (`d6c461b2`)
+
+In progress: dense `GraniteSWAForCausalLM` (2.14B), same recipe as swash-3b. Checkpoint 500 eval
+build `cd1d62df`; 1000–5000 are started by `swash_eval_watcher.sh` as each checkpoint is saved.
+Results: `/proj/granite-build/g4os/defense/evals/eval_swash_2b_d6c461b2_<step>/<category>/`.
+
 ## Runs
 
 | Build | Model | What | Result |
@@ -467,3 +522,6 @@ elsewhere (`2645a7a3`, `f1c1e7cd`); that node is now in `EXCLUDE_NODES`.
 | `0ec74008` | `cd2bfbc2` `final/` | merge (skipped, reused) + 2 knowledge | SUCCESS, knowledge 0.633, knowledge_with_tools 0.452 |
 | `ffdb7ee2`, `cdd03325`, `24a99365`, `71d48c77`, `ae9f49bb` (+ reruns `bece7095`, `b2510fbd`, `14329026`) | 30b `e8ff9ccf` checkpoints 1000–5000 | merge + 14 categories each | SUCCESS; see "Checkpoint comparison: granite-4.2-30b" |
 | `bd82679d`, `e53de4e2`, `bb153c64`, `66c72d49` (+ rerun `94d437b2`) | 3b `cd2bfbc2` checkpoints 1000–4000 | merge + 14 categories each | SUCCESS; see "Checkpoint comparison: granite-4.2-3b" |
+| `07d7d141`, `36aa183d`, `5befa15e`, `f8573b39`, `befaf36c` (+ reruns `2645a7a3`, `f1c1e7cd`) | 8b `99f8bbec` checkpoints 1000–5000 | merge + 14 categories each | SUCCESS; see "Checkpoint comparison: granite-4.2-8b" |
+| `5df38202`/`8565a6d5`, `3173d686`, `7d68fc45`, `913701d7`/`d4c58beb`, `64dc4ef7`, `fbdf40e0` | swash-3b `ade7bec1` checkpoints 500–5000 | `MODEL_PATH` + swash image, 14 categories each | SUCCESS; see "Checkpoint comparison: granite-swash-3b" |
+| `567cc0ee` / `18c5342d` | 3b `cd2bfbc2` `final/` | regression after the vLLM-0.30 step changes (inventory, knowledge) | SUCCESS: inventory 0.938 (unchanged), knowledge 0.616 (0.633 before) |

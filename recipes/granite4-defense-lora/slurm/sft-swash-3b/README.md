@@ -191,7 +191,7 @@ All 14 categories, gpu-mid, swash eval image. The 3b LoRA final (`cd2bfbc2`) is 
 | **Mean, 12 tool-calling** | 0.610 | 0.632 | 0.683 | 0.712 | **0.732** | 0.731 | 0.731 |
 | knowledge | 0.438 | 0.419 | **0.454** | 0.451 | 0.406 | 0.416 | 0.633 |
 | knowledge_with_tools | 0.405 | 0.427 | 0.408 | **0.458** | 0.435 | 0.435 | 0.452 |
-| **Mean, 2 knowledge** | 0.421 | 0.423 | 0.431 | **0.454** | 0.421 | 0.425 | 0.543 |
+| **Mean, 2 knowledge** | 0.421 | 0.423 | 0.431 | **0.454** | 0.421 | 0.425 | 0.542 |
 
 **Reading it:**
 
