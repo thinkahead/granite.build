@@ -510,9 +510,63 @@ individual nodes), which recovered them.
 
 ## Checkpoint comparison: granite-swash-2b full fine-tune (`d6c461b2`)
 
-In progress: dense `GraniteSWAForCausalLM` (2.14B), same recipe as swash-3b. Checkpoint 500 eval
-build `cd1d62df`; 1000–5000 are started by `swash_eval_watcher.sh` as each checkpoint is saved.
-Results: `/proj/granite-build/g4os/defense/evals/eval_swash_2b_d6c461b2_<step>/<category>/`.
+**In progress (2026-10-28).** Dense `GraniteSWAForCausalLM` (2.14B, no experts), same recipe and
+data as swash-3b ([`sft-swash`](../sft-swash/README.md), `train.sh swash-2b`). All 14 categories,
+gpu-mid, swash eval image. swash-3b's matching checkpoints are alongside for comparison. "—" = not
+scored yet (rerun pending, see below).
+
+| Category | 2b 500 | 2b 1000 | 2b 2000 | 3b 500 | 3b 1000 | 3b 2000 | 5.1-20b untrained |
+|---|---|---|---|---|---|---|---|
+| router | 0.820 | 0.864 | — | 0.802 | 0.887 | 0.893 | — |
+| inventory | 0.668 | — | 0.810 | 0.679 | 0.722 | 0.861 | 0.127 |
+| nonstategroups | 0.768 | 0.812 | — | 0.770 | 0.811 | 0.846 | 0.007 |
+| news | 0.569 | 0.603 | 0.736 | 0.548 | 0.613 | 0.751 | 0.000 |
+| profiles | 0.701 | 0.745 | — | 0.664 | 0.732 | 0.732 | — |
+| military | 0.566 | 0.598 | — | 0.601 | 0.592 | 0.678 | 0.000 |
+| analysis | 0.592 | 0.664 | — | 0.630 | 0.688 | 0.730 | 0.000 |
+| organization | 0.613 | 0.646 | — | 0.638 | 0.630 | 0.691 | 0.003 |
+| installations | 0.606 | 0.577 | — | 0.587 | 0.591 | 0.621 | 0.012 |
+| ships | 0.657 | 0.613 | — | 0.660 | 0.640 | 0.659 | 0.014 |
+| equipment | 0.566 | — | 0.531 | 0.521 | 0.486 | 0.530 | 0.019 |
+| events | 0.206 | 0.175 | — | 0.216 | 0.187 | 0.204 | 0.001 |
+| knowledge | 0.460 | 0.519 | 0.447 | 0.438 | 0.419 | 0.454 | 0.686 |
+| knowledge_with_tools | 0.397 | 0.383 | 0.459 | 0.405 | 0.427 | 0.408 | 0.769 |
+| **Mean, 12 tool-calling** | 0.611 | (10 of 12) | (3 of 12) | 0.610 | 0.632 | 0.683 | 0.018 (10 of 12) |
+| **Mean, 2 knowledge** | 0.429 | 0.451 | 0.453 | 0.421 | 0.423 | 0.431 | **0.728** |
+| **Mean, all 14** | 0.585 | — | — | 0.583 | 0.602 | 0.647 | — |
+
+**Reading it so far:**
+
+- **swash-2b tracks swash-3b.** At step 500 the two are level (tool-calling 0.611 vs 0.610). At 1000
+  swash-2b is within ±0.03 of swash-3b on each of the 10 scored categories, and its knowledge mean is
+  higher (0.451 vs 0.423).
+- **Knowledge is a little better than swash-3b but still well below the 4.2 models** (0.43–0.45 vs
+  0.54), for the same reason: a base model trained on tool-calling data only.
+
+**granite-5.1-20b, untrained (`eval_g51_20b_base`, build `ef8da6f6`): the starting point for the
+20b fine-tune.**
+
+- **Knowledge 0.728:** above every fine-tuned checkpoint in this README (the best is the 4.2 8b
+  at step 2000, 0.575). Consistent with defense knowledge already being in its pretraining.
+- **Tool calling is near zero (0.000–0.127):** the calls are well-formed but don't follow these
+  tools' filter schema. For example, for "How many F-35Bs does the US own" it filters on
+  `operator` + `equipmentOwnership` with the full name "F-35B Lightning II" and packs the list into
+  one string; the reference is `equipment: F-35B` + `countryOfOperation: United States`. That schema
+  is what the SFT teaches, so this is expected before training.
+
+**Not scored yet** (reruns started 2026-10-28, same `NAME`, so results land in the same folders):
+
+| Missing | Why | Rerun build |
+|---|---|---|
+| 2b 1000: inventory, equipment | cluster job preempted before writing a result | `20df7e86` |
+| 2b 2000: router, nonstategroups, profiles, analysis, organization, installations, ships, events | never ran: the sandbox restarted at 16:38 and the local job service stopped before launching them | `d631e536` |
+| 2b 2000: military | preempted | `a00eba6f` |
+| 20b untrained: router, profiles | vLLM started but no result was written (job ended at the 16:38 restart) | `ddeb9af7` |
+
+Checkpoints 3000 and 4000: builds `15606dc1` and `1aafe5d6` (all 14 categories). 5000: to start when
+the checkpoint is saved. Results:
+`/proj/granite-build/g4os/defense/evals/eval_swash_2b_d6c461b2_<step>/<category>/` and
+`/proj/granite-build/g4os/defense/evals/eval_g51_20b_base/<category>/`.
 
 ## Runs
 
