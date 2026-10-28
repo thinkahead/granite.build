@@ -75,6 +75,24 @@ done
 - **Disk:** each merged 30b checkpoint is ~55 GB (`$RUN/merged_checkpoint-<N>/`). Delete them
   after the evals if you're short of space; a later eval re-merges.
 
+### granite-swash full fine-tune checkpoints
+
+Swash checkpoints are full models (no LoRA), and swash needs vLLM >= 0.30. Point `MODEL_PATH` at
+the checkpoint (no merge target is created; `ADAPTER_PATH`/`BASE_MODEL_PATH` are ignored) and set
+`EVAL_IMAGE`:
+
+```bash
+RUN=/proj/granite-build/g4os/defense/runs/ade7bec1-f9bf-4022-b757-1d295b176def/sft_swash_3b_v2_odm_90_10_entropy_xml
+GB_ENVIRONMENT=STANDALONE PATH=$HOME/.local/bin:$PATH .venv/bin/gb build start \
+  -f recipes/granite4-defense-lora/slurm/eval-defense/build.yaml --skip-version-check \
+  --param MODEL_PATH=$RUN/checkpoint-1000 \
+  --param EVAL_IMAGE=docker:/proj/granite-build/g4os/enroot/vllm-swash-nightly-defense-eval.sqsh \
+  --param NAME=eval_swash_3b_ade7bec1_1000 \
+  --param QUEUE=gpu-mid --param QOS= --param TIME_LIMIT=7-00:00:00
+```
+
+Image build, scores and the vLLM-0.30 fixes: [`../sft-swash-3b/README.md`](../sft-swash-3b/README.md).
+
 ### Which queue: gpu-high, gpu-low, gpu-mid
 
 Two parameters pick where the jobs run: `QUEUE`, the SLURM **partition** (what `squeue` shows in

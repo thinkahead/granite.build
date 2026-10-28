@@ -17,6 +17,10 @@
 #   gb build start -f recipes/granite4-defense-lora/slurm/eval-defense/build.yaml --skip-version-check
 # Another checkpoint:
 #   --param ADAPTER_PATH=/proj/.../checkpoint-3000 --param NAME=eval_g42nt_lora_3b_cd2bfbc2_3000
+# A full model (no LoRA, no merge target), e.g. a granite-swash full fine-tune checkpoint, on a
+# vLLM image that can serve it:
+#   --param MODEL_PATH=/proj/.../checkpoint-500 --param NAME=eval_swash_3b_<build>_500 \
+#   --param EVAL_IMAGE=docker:/proj/granite-build/g4os/enroot/vllm-swash-nightly-defense-eval.sqsh
 ######
 granite.build:
   name: $${NAME}
@@ -24,6 +28,7 @@ granite.build:
     max_retries: $${MAX_RETRIES}
     target_reuse_enabled: true
   targets:
+<% if MODEL_PATH | string | trim == "" %>
     merge:
       environment_uri: "$${ENVIRONMENT_URI}"
       inputs:
@@ -58,12 +63,18 @@ granite.build:
                 memory: $${MERGE_MEMORY}
                 cluster: "$${CLUSTER}"
                 zone: "$${QUEUE}"
+<% endif %>
 
     inventory:
       environment_uri: "$${ENVIRONMENT_URI}"
       inputs:
         model:
+<% if MODEL_PATH | string | trim == "" %>
           binding: merge.merged_model
+<% else %>
+          uri: "env://$${MODEL_PATH}"
+          type: model
+<% endif %>
       outputs:
         eval_results:
           uri: "env://{{ binding.path }}"
@@ -89,6 +100,9 @@ granite.build:
               num_gpus_per_node: $${NUM_GPUS_PER_NODE}
               num_cpus_per_node: $${GPU_CPUS}
             launcher_config:
+<% if EVAL_IMAGE | string | trim != "" %>
+              image_id: "$${EVAL_IMAGE}"
+<% endif %>
               sbatch_options:
                 exclude: "$${EXCLUDE_NODES}"
                 time: "$${TIME_LIMIT}"
@@ -105,7 +119,12 @@ granite.build:
       environment_uri: "$${ENVIRONMENT_URI}"
       inputs:
         model:
+<% if MODEL_PATH | string | trim == "" %>
           binding: merge.merged_model
+<% else %>
+          uri: "env://$${MODEL_PATH}"
+          type: model
+<% endif %>
       outputs:
         eval_results:
           uri: "env://{{ binding.path }}"
@@ -131,6 +150,9 @@ granite.build:
               num_gpus_per_node: $${NUM_GPUS_PER_NODE}
               num_cpus_per_node: $${GPU_CPUS}
             launcher_config:
+<% if EVAL_IMAGE | string | trim != "" %>
+              image_id: "$${EVAL_IMAGE}"
+<% endif %>
               sbatch_options:
                 exclude: "$${EXCLUDE_NODES}"
                 time: "$${TIME_LIMIT}"
@@ -147,7 +169,12 @@ granite.build:
       environment_uri: "$${ENVIRONMENT_URI}"
       inputs:
         model:
+<% if MODEL_PATH | string | trim == "" %>
           binding: merge.merged_model
+<% else %>
+          uri: "env://$${MODEL_PATH}"
+          type: model
+<% endif %>
       outputs:
         eval_results:
           uri: "env://{{ binding.path }}"
@@ -173,6 +200,9 @@ granite.build:
               num_gpus_per_node: $${NUM_GPUS_PER_NODE}
               num_cpus_per_node: $${GPU_CPUS}
             launcher_config:
+<% if EVAL_IMAGE | string | trim != "" %>
+              image_id: "$${EVAL_IMAGE}"
+<% endif %>
               sbatch_options:
                 exclude: "$${EXCLUDE_NODES}"
                 time: "$${TIME_LIMIT}"
@@ -189,7 +219,12 @@ granite.build:
       environment_uri: "$${ENVIRONMENT_URI}"
       inputs:
         model:
+<% if MODEL_PATH | string | trim == "" %>
           binding: merge.merged_model
+<% else %>
+          uri: "env://$${MODEL_PATH}"
+          type: model
+<% endif %>
       outputs:
         eval_results:
           uri: "env://{{ binding.path }}"
@@ -215,6 +250,9 @@ granite.build:
               num_gpus_per_node: $${NUM_GPUS_PER_NODE}
               num_cpus_per_node: $${GPU_CPUS}
             launcher_config:
+<% if EVAL_IMAGE | string | trim != "" %>
+              image_id: "$${EVAL_IMAGE}"
+<% endif %>
               sbatch_options:
                 exclude: "$${EXCLUDE_NODES}"
                 time: "$${TIME_LIMIT}"
@@ -231,7 +269,12 @@ granite.build:
       environment_uri: "$${ENVIRONMENT_URI}"
       inputs:
         model:
+<% if MODEL_PATH | string | trim == "" %>
           binding: merge.merged_model
+<% else %>
+          uri: "env://$${MODEL_PATH}"
+          type: model
+<% endif %>
       outputs:
         eval_results:
           uri: "env://{{ binding.path }}"
@@ -257,6 +300,9 @@ granite.build:
               num_gpus_per_node: $${NUM_GPUS_PER_NODE}
               num_cpus_per_node: $${GPU_CPUS}
             launcher_config:
+<% if EVAL_IMAGE | string | trim != "" %>
+              image_id: "$${EVAL_IMAGE}"
+<% endif %>
               sbatch_options:
                 exclude: "$${EXCLUDE_NODES}"
                 time: "$${TIME_LIMIT}"
@@ -273,7 +319,12 @@ granite.build:
       environment_uri: "$${ENVIRONMENT_URI}"
       inputs:
         model:
+<% if MODEL_PATH | string | trim == "" %>
           binding: merge.merged_model
+<% else %>
+          uri: "env://$${MODEL_PATH}"
+          type: model
+<% endif %>
       outputs:
         eval_results:
           uri: "env://{{ binding.path }}"
@@ -299,6 +350,9 @@ granite.build:
               num_gpus_per_node: $${NUM_GPUS_PER_NODE}
               num_cpus_per_node: $${GPU_CPUS}
             launcher_config:
+<% if EVAL_IMAGE | string | trim != "" %>
+              image_id: "$${EVAL_IMAGE}"
+<% endif %>
               sbatch_options:
                 exclude: "$${EXCLUDE_NODES}"
                 time: "$${TIME_LIMIT}"
@@ -315,7 +369,12 @@ granite.build:
       environment_uri: "$${ENVIRONMENT_URI}"
       inputs:
         model:
+<% if MODEL_PATH | string | trim == "" %>
           binding: merge.merged_model
+<% else %>
+          uri: "env://$${MODEL_PATH}"
+          type: model
+<% endif %>
       outputs:
         eval_results:
           uri: "env://{{ binding.path }}"
@@ -341,6 +400,9 @@ granite.build:
               num_gpus_per_node: $${NUM_GPUS_PER_NODE}
               num_cpus_per_node: $${GPU_CPUS}
             launcher_config:
+<% if EVAL_IMAGE | string | trim != "" %>
+              image_id: "$${EVAL_IMAGE}"
+<% endif %>
               sbatch_options:
                 exclude: "$${EXCLUDE_NODES}"
                 time: "$${TIME_LIMIT}"
@@ -357,7 +419,12 @@ granite.build:
       environment_uri: "$${ENVIRONMENT_URI}"
       inputs:
         model:
+<% if MODEL_PATH | string | trim == "" %>
           binding: merge.merged_model
+<% else %>
+          uri: "env://$${MODEL_PATH}"
+          type: model
+<% endif %>
       outputs:
         eval_results:
           uri: "env://{{ binding.path }}"
@@ -383,6 +450,9 @@ granite.build:
               num_gpus_per_node: $${NUM_GPUS_PER_NODE}
               num_cpus_per_node: $${GPU_CPUS}
             launcher_config:
+<% if EVAL_IMAGE | string | trim != "" %>
+              image_id: "$${EVAL_IMAGE}"
+<% endif %>
               sbatch_options:
                 exclude: "$${EXCLUDE_NODES}"
                 time: "$${TIME_LIMIT}"
@@ -399,7 +469,12 @@ granite.build:
       environment_uri: "$${ENVIRONMENT_URI}"
       inputs:
         model:
+<% if MODEL_PATH | string | trim == "" %>
           binding: merge.merged_model
+<% else %>
+          uri: "env://$${MODEL_PATH}"
+          type: model
+<% endif %>
       outputs:
         eval_results:
           uri: "env://{{ binding.path }}"
@@ -425,6 +500,9 @@ granite.build:
               num_gpus_per_node: $${NUM_GPUS_PER_NODE}
               num_cpus_per_node: $${GPU_CPUS}
             launcher_config:
+<% if EVAL_IMAGE | string | trim != "" %>
+              image_id: "$${EVAL_IMAGE}"
+<% endif %>
               sbatch_options:
                 exclude: "$${EXCLUDE_NODES}"
                 time: "$${TIME_LIMIT}"
@@ -441,7 +519,12 @@ granite.build:
       environment_uri: "$${ENVIRONMENT_URI}"
       inputs:
         model:
+<% if MODEL_PATH | string | trim == "" %>
           binding: merge.merged_model
+<% else %>
+          uri: "env://$${MODEL_PATH}"
+          type: model
+<% endif %>
       outputs:
         eval_results:
           uri: "env://{{ binding.path }}"
@@ -467,6 +550,9 @@ granite.build:
               num_gpus_per_node: $${NUM_GPUS_PER_NODE}
               num_cpus_per_node: $${GPU_CPUS}
             launcher_config:
+<% if EVAL_IMAGE | string | trim != "" %>
+              image_id: "$${EVAL_IMAGE}"
+<% endif %>
               sbatch_options:
                 exclude: "$${EXCLUDE_NODES}"
                 time: "$${TIME_LIMIT}"
@@ -483,7 +569,12 @@ granite.build:
       environment_uri: "$${ENVIRONMENT_URI}"
       inputs:
         model:
+<% if MODEL_PATH | string | trim == "" %>
           binding: merge.merged_model
+<% else %>
+          uri: "env://$${MODEL_PATH}"
+          type: model
+<% endif %>
       outputs:
         eval_results:
           uri: "env://{{ binding.path }}"
@@ -509,6 +600,9 @@ granite.build:
               num_gpus_per_node: $${NUM_GPUS_PER_NODE}
               num_cpus_per_node: $${GPU_CPUS}
             launcher_config:
+<% if EVAL_IMAGE | string | trim != "" %>
+              image_id: "$${EVAL_IMAGE}"
+<% endif %>
               sbatch_options:
                 exclude: "$${EXCLUDE_NODES}"
                 time: "$${TIME_LIMIT}"
@@ -525,7 +619,12 @@ granite.build:
       environment_uri: "$${ENVIRONMENT_URI}"
       inputs:
         model:
+<% if MODEL_PATH | string | trim == "" %>
           binding: merge.merged_model
+<% else %>
+          uri: "env://$${MODEL_PATH}"
+          type: model
+<% endif %>
       outputs:
         eval_results:
           uri: "env://{{ binding.path }}"
@@ -551,6 +650,9 @@ granite.build:
               num_gpus_per_node: $${NUM_GPUS_PER_NODE}
               num_cpus_per_node: $${GPU_CPUS}
             launcher_config:
+<% if EVAL_IMAGE | string | trim != "" %>
+              image_id: "$${EVAL_IMAGE}"
+<% endif %>
               sbatch_options:
                 exclude: "$${EXCLUDE_NODES}"
                 time: "$${TIME_LIMIT}"
@@ -572,7 +674,12 @@ granite.build:
       environment_uri: "$${ENVIRONMENT_URI}"
       inputs:
         model:
+<% if MODEL_PATH | string | trim == "" %>
           binding: merge.merged_model
+<% else %>
+          uri: "env://$${MODEL_PATH}"
+          type: model
+<% endif %>
       outputs:
         eval_results:
           uri: "env://{{ binding.path }}"
@@ -607,6 +714,9 @@ granite.build:
               num_gpus_per_node: $${NUM_GPUS_PER_NODE}
               num_cpus_per_node: $${GPU_CPUS}
             launcher_config:
+<% if EVAL_IMAGE | string | trim != "" %>
+              image_id: "$${EVAL_IMAGE}"
+<% endif %>
               sbatch_options:
                 exclude: "$${EXCLUDE_NODES}"
                 time: "$${TIME_LIMIT}"

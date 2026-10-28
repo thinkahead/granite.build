@@ -99,11 +99,14 @@ environment_configs:
             # parent. The tool-calling scripts guard `if __name__ == "__main__"`, which
             # spawn requires. The two defense_knowledge scripts run at module level, so
             # spawn re-executes them in the child and aborts ("bootstrapping phase");
-            # their targets override this to fork via eval_config.extra_env.
+            # their targets override this to fork via eval_config.extra_env. vLLM >= 0.30
+            # forces spawn anyway once CUDA is initialized, so every script now runs via
+            # src/run_as_main.py, which keeps the spawn child from re-executing it.
             VLLM_WORKER_MULTIPROC_METHOD: spawn
             TOKENIZERS_PARALLELISM: "false"
           run: |
             WORK="${GB_BUILD_WORKDIR:-$PWD}"
+            STEP_DIR="$PWD"   # the step's src/ (file_mounts), before any cd
             PYBIN="{{ config.python }}"
             export PYBIN
 
@@ -181,7 +184,7 @@ environment_configs:
               OUTPUT_PATH="$OUTPUT_PATH" \
               {% if config.eval_config.dataset_names %}DATASET_NAMES="{{ config.eval_config.dataset_names }}" {% endif %}\
               {% if config.eval_config.tools %}TOOLS="{{ config.eval_config.tools }}" {% endif %}\
-              "$PYBIN" "{{ config.eval_config.script }}" > "$EVAL_LOG" 2>&1 &
+              "$PYBIN" "$STEP_DIR/src/run_as_main.py" "{{ config.eval_config.script }}" > "$EVAL_LOG" 2>&1 &
             EVAL_PID=$!
             tail -n +1 -F --pid="$EVAL_PID" "$EVAL_LOG" 2>/dev/null || true
             wait "$EVAL_PID"; RC=$?

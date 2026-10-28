@@ -1,0 +1,77 @@
+# sft-swash-3b (SLURM) — see build.yaml's header. Override any value with --param KEY=VALUE.
+
+# ─── Inputs on /proj ─────────────────────────────────────────────────────
+# granite-swash-3b-a600m weights + granite-4.2 tokenizer/chat template (see its README.md).
+MODEL_URI: "env:///proj/granite-build/g4os/models/granite-swash-3b-a600m-g42tok"
+# transformers 5.18.0 (+ huggingface_hub 1.33, tokenizers 0.23.3, safetensors 0.8, regex 2026.9),
+# installed --no-deps for the 6mar2026 image (its regex 2024.11 is too old for transformers 5.18).
+# LOCAL PATCH in transformers/utils/import_utils.py (original kept as import_utils.py.orig):
+# _is_package_available's (exists, version) tuple is falsy when the package is missing. In
+# transformers 5 it is always a non-empty tuple, so 4.x-era callers (fms-hf-tuning trackers, trl,
+# fms-acceleration) took every optional package as installed and crashed importing `aim`.
+TRANSFORMERS_LIB: "/proj/granite-build/g4os/pylibs/swash-transformers-5.18-6mar"
+# The 6mar2026 image's fms-hf-tuning, patched for transformers 5 (originals kept as *.orig):
+#   sft_trainer.py      AutoModelForVision2Seq -> AutoModelForImageTextToText (renamed)
+#   tokenizer_utils.py  add_special_tokens(replace_additional_special_tokens=) -> replace_extra_special_tokens=
+#   data_handlers.py    apply_chat_template(tokenize=True, return_tensors="pt") now returns a
+#                       BatchEncoding; the masking handler unwraps input_ids before .clone()/.shape
+# Verified end to end on CPU (data pipeline + masking + 2 optimizer steps), 2026-10-27.
+FMS_OVERLAY: "/proj/granite-build/g4os/pylibs/swash-fms-tuning-overlay-6mar"
+ATTN_IMPLEMENTATION: "flex_attention"
+# Vela /gb-read-write/karve/xmldata_v2 -> DATA_V2_ROOT, /gb-read-write/karve/xmldata -> DATA_V1_ROOT.
+DATA_V2_ROOT: "/proj/granite-build/g4os/defense/defense_xmldata_v2/20260914T194134"
+DATA_V1_ROOT: "/proj/granite-build/g4os/defense/defense_xmldata/20260914T194247"
+
+# ─── Trainer image ───────────────────────────────────────────────────────
+# Pre-staged enroot squashfs on /proj (pyxis mounts it directly). Both work with this
+# recipe; PYTHON must match the image.
+#   6mar2026 : us.icr.io/cil15-shared-registry/fms-hf-tuning:6mar2026-a66092d5c01 (k8s
+#              `tuning` step default; validated: builds 26ae041d, cd2bfbc2)
+#              -> PYTHON=/usr/bin/python3
+#   v3.2.2   : quay.io/modh/fms-hf-tuning:v3.2.2 (torch 2.8.0, accelerate 1.15.0, peft 0.19.1,
+#              fms-acceleration-odm 0.1.6, filelock 4.0.8) -> PYTHON=/usr/bin/python
+# 6mar2026 (Ubuntu; torch 2.8.0, accelerate 1.13, peft 0.18.1, fms-acceleration-odm 0.1.5), the
+# image the 4.2 runs use. NOT v3.2.2: it is RHEL-based (no apt-get), and SkyPilot's SLURM container
+# setup apt-installs its SSH server, so every v3.2.2 launch fails in setup.
+IMAGE_ID: "docker:/proj/granite-build/g4os/enroot/us.icr.io-cil15-shared-registry-fms-hf-tuning-6mar2026-a66092d5c01.sqsh"
+PYTHON: "/usr/bin/python3"
+
+# ─── Outputs ─────────────────────────────────────────────────────────────
+# One directory per build: <OUTPUT_ROOT>/<build_id>/<EXPERIMENT>/{checkpoint-N,final}.
+OUTPUT_ROOT: "/proj/granite-build/g4os/defense/runs"
+EXPERIMENT: "sft_swash_3b_v2_odm_90_10_entropy_xml"
+
+# ─── Training ────────────────────────────────────────────────────────────
+MAX_STEPS: 5000
+EVAL_STEPS: 250
+ODM_UPDATE_INTERVAL: 250
+# Full-model checkpoints (model + optimizer state, ~40 GB each); 500 bounds the work lost to a
+# preemption or retry (MAX_RETRIES resumes from the latest checkpoint).
+SAVE_STEPS: 500
+LEARNING_RATE: "1e-05"
+PER_DEVICE_TRAIN_BATCH_SIZE: 5
+# Effective batch = PER_DEVICE_TRAIN_BATCH_SIZE x GRADIENT_ACCUMULATION_STEPS x NUM_NODES x 8.
+GRADIENT_ACCUMULATION_STEPS: 1
+MAX_SEQ_LENGTH: 8192
+
+# ─── Topology and resources ──────────────────────────────────────────────
+NUM_NODES: 1
+NUM_GPUS_PER_NODE: 8
+ACCELERATORS: "H200:8"
+# 64 of 96 CPUs so the task spans both sockets and sees all 8 GPUs
+# (gpu:h200:8(S:0-1) — a one-socket task sees only 4).
+GPU_CPUS: 64
+MEMORY: 256
+CLUSTER: "bluevela"
+# gpu-high (2-day MaxTime) because gpu-mid has no free nodes; gpu-high denies
+# qos=normal, so it needs QOS. For gpu-mid: --param QUEUE=gpu-mid --param QOS="".
+QUEUE: "gpu-high"
+QOS: "grp_granite_dot_build_high_1n"
+# Must be <= the partition MaxTime (gpu-high 2-00:00:00; gpu-mid 7-00:00:00).
+TIME_LIMIT: "2-00:00:00"
+ENVIRONMENT_URI: "space://environments/skypilot/slurm/ibm-bluevela"
+
+# ─── Retries / monitoring ────────────────────────────────────────────────
+MAX_RETRIES: 3
+POLL_INTERVAL_SECONDS: 300
+LOG_RETRIEVAL_INTERVAL_SECONDS: 300

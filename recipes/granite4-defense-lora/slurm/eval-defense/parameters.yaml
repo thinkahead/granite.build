@@ -6,6 +6,9 @@
 ADAPTER_PATH: "/proj/granite-build/g4os/defense/runs/cd2bfbc2-f7f0-4252-a32d-119ea2c30d58/sftlora_g42_3b_v2_odm_90_10_entropy_xml/final"
 # Base the adapter was trained on (its adapter_config.json base_model_name_or_path).
 BASE_MODEL_PATH: "/proj/granite-build/g4os/kd-sandbox/model_copies/granite-4.2-3b"
+# A FULL model dir to evaluate as-is (full fine-tune checkpoint, e.g. granite-swash). When set,
+# there is no merge target and ADAPTER_PATH / BASE_MODEL_PATH are ignored. Empty => LoRA path.
+MODEL_PATH: ""
 # Where the merged full model goes. Next to the adapter by default.
 MERGED_PATH: ""
 # The merge is skipped when MERGED_PATH (or the default merged_<adapter>/) already holds
@@ -17,6 +20,13 @@ MERGE_MEMORY: 256
 # Label for the run; outputs go to <OUTPUT_ROOT>/<NAME>/<category>/.
 NAME: "eval_g42nt_lora_3b_cd2bfbc2_final"
 OUTPUT_ROOT: "/proj/granite-build/g4os/defense/evals"
+
+# ─── Eval image ──────────────────────────────────────────────────────────
+# Empty => the defense-eval-slurm step default (vllm 0.11.2 + transformers 4.57, for granite-4.2).
+# granite-swash (GraniteMoeSWAForCausalLM) needs a newer vLLM:
+#   docker:/proj/granite-build/g4os/enroot/vllm-swash-nightly-defense-eval.sqsh
+# (built by the step's image/build_eval_sqsh_swash.sh).
+EVAL_IMAGE: ""
 
 # ─── Eval code + data (same branch and data as Vela eval_g42nt_local.yaml) ─
 FM_EVAL_REF: "unitxt_benchmarks_local"

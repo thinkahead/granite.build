@@ -1,0 +1,236 @@
+######
+# sft-swash-3b (SLURM) — granite-swash-3b-a600m FULL fine-tune with ODM entropy sampling on the
+# defense XML/tool datasets, on BlueVela SLURM. Same data, ODM settings and patches as
+# ../sftlora-g42-3b (granite-4.2 LoRA); what differs for swash:
+#   * model: GraniteMoeSWAForCausalLM (MoE 48 experts top-4 + shared expert, sliding-window
+#     attention with learnable attention sinks). Needs transformers >= 5.15; the trainer image
+#     (fms-hf-tuning 6mar2026, as for the 4.2 runs) has 4.55, so setup_commands put a pinned
+#     transformers 5.18 and a one-line-patched fms-hf-tuning (AutoModelForVision2Seq was renamed in
+#     transformers 5) on PYTHONPATH ahead of the image's site-packages.
+#   * model dir: granite-swash-3b-a600m-g42tok = swash weights + the granite-4.2 tokenizer and
+#     chat template (same BPE vocab; 4.2 special tokens sit in swash's unused special ids), so the
+#     data tokenizes exactly as for the 4.2 runs. config: _experts_implementation=eager.
+#   * attention: flex_attention. Swash has no sdpa or FlashAttention-2 support (attention sinks);
+#     FA3's hub kernel has no torch-2.8 build that transformers 5.18 can load. On one H200, an
+#     8192-token packed batch with gradient checkpointing: flex 1.55 s / 17.0 GB, eager 3.69 s /
+#     35.7 GB, same loss.
+#   * full fine-tune (no LoRA: the experts are fused 3-D tensors that PEFT can't target), so
+#     final/ is a full model — no merge step. LEARNING_RATE 1e-5 (vs 1e-4 for LoRA).
+#   * fast_kernels dropped (fms-acceleration-foak imports a transformers 4 symbol).
+# See kd-sandbox/README_SWASH.md for the distillation-side history of these issues.
+#
+# Run (parameters.yaml beside this file is picked up automatically):
+#   gb build start -f recipes/granite4-defense-lora/slurm/sft-swash-3b/build.yaml --skip-version-check
+######
+<% set V2 = [
+  ("tuning_data_inventory", "inventory_10102025_training_v2"),
+  ("tuning_data_equipment", "equipment_10102025_training_v3"),
+  ("tuning_data_military", "militarygroups_10102025_training_v2"),
+  ("tuning_data_organizations", "organizations_22102025_training_v7"),
+  ("tuning_data_installations", "installations_21112025_training_v9"),
+  ("tuning_data_non_state_groups", "nonstategroups_10102025_training_v2"),
+  ("tuning_data_ships", "ships_10102025_training_v2"),
+  ("tuning_data_events", "events_16102025_training_v3"),
+  ("tuning_data_analysis", "analysis_14102025_training_v10"),
+  ("tuning_data_profiles", "profiles_10102025_training_v2"),
+  ("tuning_data_news", "news_14102025_training_v3"),
+] %>
+granite.build:
+  name: $${EXPERIMENT}_slurm
+  retries:
+    max_retries: $${MAX_RETRIES}
+  targets:
+    tunedmodel:
+      environment_uri: "$${ENVIRONMENT_URI}"
+      inputs:
+        model_to_tune:
+          uri: "$${MODEL_URI}"
+          type: model
+      outputs:
+        final_checkpoint:
+          uri: "env://{{ binding.path }}"
+          type: model
+        intermediate_checkpoint_with_optimizer_state:
+          uri: "env://{{ binding.path }}"
+          type: model
+        training_logs_jsonl:
+          uri: "env://{{ binding.path }}"
+          type: dataset
+      steps:
+        - step_uri: space://steps/tuning-slurm
+          config:
+            python: "$${PYTHON}"
+            output_root: "$${OUTPUT_ROOT}/{{ run_metadata.build_id }}"
+            experiment: "$${EXPERIMENT}"
+            poll_interval_seconds: $${POLL_INTERVAL_SECONDS}
+            log_retrieval_interval_seconds: $${LOG_RETRIEVAL_INTERVAL_SECONDS}
+            compute_config:
+              num_nodes: $${NUM_NODES}
+              num_gpus_per_node: $${NUM_GPUS_PER_NODE}
+              num_cpus_per_node: $${GPU_CPUS}
+            launcher_config:
+              image_id: "$${IMAGE_ID}"
+              sbatch_options:
+                time: "$${TIME_LIMIT}"
+<% if QOS | string | trim != "" %>
+                qos: "$${QOS}"
+<% endif %>
+              resources:
+                accelerators: "$${ACCELERATORS}"
+                memory: $${MEMORY}
+                cluster: "$${CLUSTER}"
+                zone: "$${QUEUE}"
+              envs:
+                NCCL_TIMEOUT: "10800000" # 3 hours
+            tuning_data_config:
+              dataprocessor:
+                type: odm
+                seed: 42
+                odm:
+                  update_interval: $${ODM_UPDATE_INTERVAL}
+                  sampling_interval: 1 # sample category for every sample
+                  reward_type: entropy # bounded [0,1] reward; REQUIRES the vocab_size=100352 fix below. See defense/ODM_TUNING.md
+                  gamma: 0.1
+                  eta: 0.3
+              datasets:
+<% for name, dir in V2[:1] %>
+                - name: $${name}
+                  split:
+                    train: 0.90
+                    validation: 0.10
+                  data_paths:
+                    - '$${DATA_V2_ROOT}/$${dir}/data/*.parquet'
+                  data_handlers:
+                    - name: tokenize_and_apply_chat_template_with_masking
+                      arguments:
+                        remove_columns: all
+                        batched: false
+                        fn_kwargs:
+                          conversation_column: messages
+<% endfor %>
+                - name: tuning_data_router
+                  split:
+                    train: 0.90
+                    validation: 0.10
+                  data_paths:
+                    - '$${DATA_V1_ROOT}/router_14102025_training_all_v1/data/*.parquet'
+                  data_handlers:
+                    - name: tokenize_and_apply_chat_template_with_masking
+                      arguments:
+                        remove_columns: all
+                        batched: false
+                        fn_kwargs:
+                          conversation_column: messages
+<% for name, dir in V2[1:] %>
+                - name: $${name}
+                  split:
+                    train: 0.90
+                    validation: 0.10
+                  data_paths:
+                    - '$${DATA_V2_ROOT}/$${dir}/data/*.parquet'
+                  data_handlers:
+                    - name: tokenize_and_apply_chat_template_with_masking
+                      arguments:
+                        remove_columns: all
+                        batched: false
+                        fn_kwargs:
+                          conversation_column: messages
+<% endfor %>
+            tuning_config:
+              ddp_timeout: "10800" # 3 hours
+              logging_steps: '10'
+              max_steps: $${MAX_STEPS}
+              eval_strategy: "steps"
+              eval_steps: $${EVAL_STEPS} # keep aligned with ODM update_interval
+              save_strategy: "steps"
+              save_steps: $${SAVE_STEPS}
+              optim: adamw_torch
+              adam_beta1: '0.9'
+              adam_beta2: '0.95'
+              adam_epsilon: '1e-10'
+              optim_args: lr=$${LEARNING_RATE}
+              learning_rate: '$${LEARNING_RATE}'
+              weight_decay: '0.1'
+              gradient_checkpointing: true
+              gradient_accumulation_steps: $${GRADIENT_ACCUMULATION_STEPS}
+              # per_device_EVAL_batch_size MUST stay 1 (padding-free eval/ODM collator).
+              per_device_train_batch_size: $${PER_DEVICE_TRAIN_BATCH_SIZE}
+              per_device_eval_batch_size: 1
+              max_seq_length: $${MAX_SEQ_LENGTH}
+              use_flash_attn: true
+              # Swash attention sinks: eager or flex only (no sdpa / FlashAttention-2).
+              flash_attn_implementation: "$${ATTN_IMPLEMENTATION}"
+              lr_scheduler_type: cosine
+              padding_free: huggingface
+              enable_reduce_loss_sum: "true"
+              # RESIZE-SUPPRESSION: no <PAD> token added -> no modules_to_save -> clean FSDP + merge.
+              tokenizer_name_or_path: '{{ bindings.model_to_tune.binding.path }}'
+            fsdp_config:
+              use_fsdp: "true"
+              fsdp_auto_wrap_policy: "TRANSFORMER_BASED_WRAP"
+              fsdp_forward_prefetch: "false"
+              fsdp_offload_params: "false"
+              fsdp_sharding_strategy: "FULL_SHARD"
+              fsdp_state_dict_type: "FULL_STATE_DICT"
+              fsdp_cpu_ram_efficient_loading: true
+              fsdp_use_orig_params: "true"
+            setup_commands:
+              # The 6mar2026 image upgraded torch 2.7 -> 2.8 in place and left 80 torch-2.7-only .py
+              # files behind. One, torch/_inductor/kernel/mm_scaled.py, imports a 2.7-only symbol, so
+              # the first torch.compile (flex_attention's block mask) dies with "cannot import name
+              # 'scaled_mm_configs'". Delete every file in the 2.7 RECORD that the 2.8 RECORD lacks.
+              # (The 4.2 runs use FlashAttention-2, which never compiles, so they never hit it.)
+              - |
+                R7=$(ls -d "$SITE_PACKAGES"/torch-2.7*.dist-info 2>/dev/null | head -1)
+                R8=$(ls -d "$SITE_PACKAGES"/torch-2.8*.dist-info 2>/dev/null | head -1)
+                if [ -n "$R7" ] && [ -n "$R8" ]; then
+                  comm -23 <(cut -d, -f1 "$R7/RECORD" | grep '^torch/.*\.py$' | sort) <(cut -d, -f1 "$R8/RECORD" | sort) > /tmp/stale_torch27.txt
+                  (cd "$SITE_PACKAGES" && xargs -r rm -f < /tmp/stale_torch27.txt)
+                  echo "STALE_TORCH27_REMOVED $(wc -l < /tmp/stale_torch27.txt) files"
+                fi
+                test ! -e "$SITE_PACKAGES/torch/_inductor/kernel/mm_scaled.py"
+              # transformers 5.18 (granitemoe_swa) + patched fms-hf-tuning, ahead of the image's
+              # site-packages. Set after the step resolved $SITE_PACKAGES, so the ODM/filelock
+              # patches below still target the image's files.
+              - export PYTHONPATH="$${FMS_OVERLAY}:$${TRANSFORMERS_LIB}:$SITE_PACKAGES"
+              - |
+                "$PYBIN" -c 'import transformers, tuning.sft_trainer as s; print("SWASH_STACK transformers", transformers.__version__, "sft_trainer", s.__file__)'
+              # Paths come from the step: $FILELOCK_UNIX, $ODM_DATASET (resolved per image).
+              # --- GPFS-safe filelock (Vela patch), filelock 3.x only ---
+              # 3.x: use POSIX byte-range locks (fcntl.lockf) and stop unlinking the lock
+              # file on release (create/unlink churn races O_CREAT on GPFS). filelock 4.x
+              # (quay.io/modh/fms-hf-tuning:v3.2.2 ships 4.0.8) rewrote _unix.py and treats
+              # that ENOENT race as transient contention, so the patch is skipped there.
+              # HF_HOME is node-local /tmp either way.
+              - |
+                FL_MAJOR="$("$PYBIN" -c 'import filelock;print(filelock.__version__.split(".")[0])')"
+                if [ "$FL_MAJOR" -lt 4 ]; then
+                  sed -i s/fcntl.flock/fcntl.lockf/ "$FILELOCK_UNIX"
+                  $PATCH_FILE "$FILELOCK_UNIX" '\n            with suppress(OSError):\n                Path(self.lock_file).unlink()' '' --min 1
+                  echo "FILELOCK_PATCH_APPLIED lockf=$(grep -c fcntl.lockf "$FILELOCK_UNIX") unlink=$(grep -c 'unlink()' "$FILELOCK_UNIX")"
+                  grep -q "fcntl.lockf" "$FILELOCK_UNIX"
+                  test "$(grep -c 'unlink()' "$FILELOCK_UNIX")" = 2
+                else
+                  echo "FILELOCK_PATCH_SKIPPED filelock major=$FL_MAJOR (handles the GPFS O_CREAT race natively)"
+                fi
+              - sed -i "s|self.log_file_path =.*$|self.log_file_path = '/tmp/odm.jsonl'|g" "$ODM_DATASET"
+              # ODM entropy-reward normalization: vocab_size=32000 -> granite-4.2's 100352 at
+              # every call site (2 in fms-acceleration-odm 0.1.5, 3 in 0.1.6); none may remain.
+              - sed -i 's/vocab_size=32000/vocab_size=100352/g' "$ODM_DATASET"
+              - test "$(grep -c 'vocab_size=100352' "$ODM_DATASET")" -ge 2
+              - test "$(grep -c 'vocab_size=32000' "$ODM_DATASET")" = 0
+              # ODM MAB numerical stability (renormalize weights each update + clamp exp exponent).
+              # $PATCH_FILE = exact-string replace with an occurrence guard (step's src/patch_file.py;
+              # the v3.2.2 image has no perl).
+              - $PATCH_FILE "$ODM_DATASET" '        return self._update_sampling_ratio(self.sampling_weights)' '        self.sampling_weights = self.sampling_weights / self.sampling_weights.max()\n        return self._update_sampling_ratio(self.sampling_weights)' --count 1 --skip-if-present 'self.sampling_weights / self.sampling_weights.max()'
+              - $PATCH_FILE "$ODM_DATASET" 'self.eta * est_r / self.total_categories' 'min(self.eta * est_r / self.total_categories, 30.0)' --count 1 --skip-if-present 'min(self.eta * est_r'
+              - grep -q "sampling_weights.max()" "$ODM_DATASET"
+              # transformers 5 removed TrainingArguments.past_index. fms-acceleration-odm's Trainer._evaluate
+              # override (patch.py) still reads it at every ODM update, so the first eval (step
+              # EVAL_STEPS) died with "'SFTConfig' object has no attribute 'past_index'". Default it to -1
+              # (its old default: no past state), which skips that branch.
+              - |
+                ODM_PATCH="$(dirname "$ODM_DATASET")/../patch.py"
+                $PATCH_FILE "$ODM_PATCH" '        if args.past_index >= 0:' '        if getattr(args, "past_index", -1) >= 0:' --count 1 --skip-if-present 'getattr(args, "past_index", -1)'
+                grep -q 'getattr(args, "past_index", -1)' "$ODM_PATCH"
+              - grep -q "min(self.eta" "$ODM_DATASET"

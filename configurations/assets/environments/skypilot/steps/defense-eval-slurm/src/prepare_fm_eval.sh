@@ -14,6 +14,11 @@ UNITXT_INF="$("$PY" -c 'import unitxt,os;print(os.path.join(os.path.dirname(unit
 sed -i 's/self\.llm\.chat(inputs, self\.sampling_params, tools=tools)/self.llm.chat(inputs, self.sampling_params, tools=tools, chat_template_kwargs={"thinking": False, "enable_thinking": False})/' "$UNITXT_INF"
 grep -q 'chat_template_kwargs={"thinking": False' "$UNITXT_INF" || { echo "defense-eval: FATAL: nothink patch did not apply to $UNITXT_INF" >&2; exit 1; }
 
+# unitxt 1.26 vs newer vLLM (0.30+, used for granite-swash): drop SamplingParams fields vLLM
+# removed (best_of) and cap LLM(max_model_len=32768) at the model's max_position_embeddings.
+# Both are no-ops on the vLLM 0.11 image (every field accepted; 4.2 models allow >= 32768).
+"$PY" "$(dirname "$0")/patch_unitxt_vllm.py"
+
 # Vela: max_tokens=1024 for the tool-calling scripts; 8-bit quantization off.
 sed -i "s/max_tokens=[^,]*,/max_tokens=1024,/" "$CODE_DIR"/unitxt_benchmarks/defense/defense_unitxt_evaluation_with_profile*.py
 sed -i "s/\"load_in_8bit\": True,/\"load_in_8bit\": False,/" "$CODE_DIR"/unitxt_benchmarks/defense/defense_unitxt_evaluation*.py
