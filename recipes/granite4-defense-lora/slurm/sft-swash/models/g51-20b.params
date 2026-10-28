@@ -5,6 +5,7 @@ EXPERIMENT=sft_g51_20b_v2_odm_90_10_entropy_xml
 PER_DEVICE_TRAIN_BATCH_SIZE=4
 # A full checkpoint with optimizer state is ~220 GB; model-only ~44 GB (not resumable).
 SAVE_ONLY_MODEL=true
-QUEUE=gpu-mid
-QOS=
-TIME_LIMIT=3-00:00:00
+# gpu-high: not preemptible, so model-only checkpoints are safe. Max 2 days (~12-15 h needed).
+QUEUE=gpu-high
+QOS=grp_granite_dot_build_high_1n
+TIME_LIMIT=2-00:00:00
