@@ -9,3 +9,6 @@ SAVE_ONLY_MODEL=true
 QUEUE=gpu-high
 QOS=grp_granite_dot_build_high_1n
 TIME_LIMIT=2-00:00:00
+# Host RAM (GB). The 256 GB default was OOM-killed in data preparation (build 91ee9c05): 8 ranks
+# each hold the 44 GB model while 96 tokenizer workers fork. gpu-high nodes have 2 TB.
+MEMORY=1600
