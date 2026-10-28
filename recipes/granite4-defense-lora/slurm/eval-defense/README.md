@@ -91,7 +91,7 @@ GB_ENVIRONMENT=STANDALONE PATH=$HOME/.local/bin:$PATH .venv/bin/gb build start \
   --param QUEUE=gpu-mid --param QOS= --param TIME_LIMIT=7-00:00:00
 ```
 
-Image build, scores and the vLLM-0.30 fixes: [`../sft-swash-3b/README.md`](../sft-swash-3b/README.md).
+Image build, scores and the vLLM-0.30 fixes: [`../sft-swash/README.md`](../sft-swash/README.md).
 
 ### Which queue: gpu-high, gpu-low, gpu-mid
 
@@ -462,7 +462,7 @@ elsewhere (`2645a7a3`, `f1c1e7cd`); that node is now in `EXCLUDE_NODES`.
 ## Checkpoint comparison: granite-swash-3b-a600m full fine-tune (`ade7bec1`)
 
 Six checkpoints of the 5000-step swash-3b full fine-tune (1 node, effective batch 40, eval/ODM every
-250; recipe [`sft-swash-3b`](../sft-swash-3b/README.md)), each on all 14 categories with this recipe
+250; recipe [`sft-swash`](../sft-swash/README.md)), each on all 14 categories with this recipe
 (`MODEL_PATH` + the swash eval image), 2026-10-27/28. Swash is a **base** model (MoE, 3.02B total /
 ~600M active). The 4.2 models' finals are the reference. **Bold** = best swash checkpoint.
 

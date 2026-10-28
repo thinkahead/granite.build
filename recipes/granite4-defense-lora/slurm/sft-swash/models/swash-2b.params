@@ -1,0 +1,3 @@
+# granite-swash-2b (dense GraniteSWAForCausalLM, 2.14B).
+MODEL_URI=env:///proj/granite-build/g4os/models/granite-swash-2b-g42tok
+EXPERIMENT=sft_swash_2b_v2_odm_90_10_entropy_xml

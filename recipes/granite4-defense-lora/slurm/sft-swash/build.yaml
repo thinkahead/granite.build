@@ -1,5 +1,6 @@
 ######
-# sft-swash-3b (SLURM) — granite-swash-3b-a600m FULL fine-tune with ODM entropy sampling on the
+# sft-swash (SLURM) — granite swash FULL fine-tune (swash-3b, swash-2b, granite-5.1-20b; per-model
+# settings in models/) with ODM entropy sampling on the
 # defense XML/tool datasets, on BlueVela SLURM. Same data, ODM settings and patches as
 # ../sftlora-g42-3b (granite-4.2 LoRA); what differs for swash:
 #   * model: GraniteMoeSWAForCausalLM (MoE 48 experts top-4 + shared expert, sliding-window
@@ -19,8 +20,8 @@
 #   * fast_kernels dropped (fms-acceleration-foak imports a transformers 4 symbol).
 # See kd-sandbox/README_SWASH.md for the distillation-side history of these issues.
 #
-# Run (parameters.yaml beside this file is picked up automatically):
-#   gb build start -f recipes/granite4-defense-lora/slurm/sft-swash-3b/build.yaml --skip-version-check
+# Run:
+#   recipes/granite4-defense-lora/slurm/sft-swash/train.sh <model>   (models/<model>.params on top of parameters.yaml)
 ######
 <% set V2 = [
   ("tuning_data_inventory", "inventory_10102025_training_v2"),

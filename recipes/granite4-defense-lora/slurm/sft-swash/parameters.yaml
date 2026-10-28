@@ -1,4 +1,4 @@
-# sft-swash-3b (SLURM) — see build.yaml's header. Override any value with --param KEY=VALUE.
+# sft-swash (SLURM) — see build.yaml's header. Override any value with --param KEY=VALUE.
 
 # ─── Inputs on /proj ─────────────────────────────────────────────────────
 # granite-swash-3b-a600m weights + granite-4.2 tokenizer/chat template (see its README.md).

@@ -1,0 +1,3 @@
+# granite-swash-3b-a600m (MoE, 48 experts top-4 + shared expert). The parameters.yaml defaults.
+MODEL_URI=env:///proj/granite-build/g4os/models/granite-swash-3b-a600m-g42tok
+EXPERIMENT=sft_swash_3b_v2_odm_90_10_entropy_xml

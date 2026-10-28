@@ -1,10 +1,29 @@
-# sft-swash-3b (BlueVela SLURM)
+# sft-swash (BlueVela SLURM)
 
-`ibm-granite/granite-swash-3b-a600m` **full fine-tune** with ODM entropy sampling on the 12 defense
-XML/tool datasets, on BlueVela SLURM. Same data, ODM settings and patches as
-[`../sftlora-g42-3b`](../sftlora-g42-3b/README.md) (granite-4.2 LoRA), so the scores compare
-directly. The build.yaml header lists what differs; the reasons are under
-[What swash needed](#what-swash-needed).
+**Full fine-tune** of the granite swash models with ODM entropy sampling on the 12 defense
+XML/tool datasets, on BlueVela SLURM. One recipe for all of them; each model's settings are a small
+file under [`models/`](models/):
+
+| Model | `models/` file | Notes |
+|---|---|---|
+| `ibm-granite/granite-swash-3b-a600m` | `swash-3b.params` | the `parameters.yaml` defaults; see below |
+| `ibm-granite/granite-swash-2b` | `swash-2b.params` | [granite-swash-2b](#granite-swash-2b-same-recipe-other-model) |
+| `ibm-research/granite-5.1-20b-sft-preview-r261020a` | `g51-20b.params` | [granite-5.1-20b](#granite-51-20b-sft-preview-same-recipe-larger-swash) |
+
+```bash
+cd ~/granite.build
+recipes/granite4-defense-lora/slurm/sft-swash/train.sh swash-3b            # start a run
+recipes/granite4-defense-lora/slurm/sft-swash/train.sh g51-20b --dry-run   # only render the build
+recipes/granite4-defense-lora/slurm/sft-swash/train.sh swash-2b LEARNING_RATE=5e-06   # extra overrides
+```
+
+`train.sh` passes `parameters.yaml` plus the model file's `KEY=VALUE` lines (then any extra
+arguments) to `gb build start`. A new model is a new `models/<name>.params`.
+
+Same data, ODM settings and patches as [`../sftlora-g42-3b`](../sftlora-g42-3b/README.md)
+(granite-4.2 LoRA), so the scores compare directly. The build.yaml header lists what differs; the
+reasons are under [What swash needed](#what-swash-needed). (This recipe was `sft-swash-3b` until
+2026-10-28; the swash-3b and swash-2b builds below ran under that name.)
 
 Swash is `GraniteMoeSWAForCausalLM`: 3.02B parameters, about 600M active (48 experts, top-4, plus a
 shared expert), sliding-window attention with learnable attention sinks, 8192-token context. It is
@@ -29,14 +48,10 @@ as `kd-sandbox/README_SWASH.md` "Workaround F".
 ## Run the training
 
 ```bash
-cd ~/granite.build
-GB_ENVIRONMENT=STANDALONE PATH=$HOME/.local/bin:$PATH .venv/bin/gb build start \
-  -f recipes/granite4-defense-lora/slurm/sft-swash-3b/build.yaml --skip-version-check \
-  --param QUEUE=gpu-high --param QOS=grp_granite_dot_build_high_1n \
-  --param NUM_NODES=1 --param TIME_LIMIT=2-00:00:00
+recipes/granite4-defense-lora/slurm/sft-swash/train.sh swash-3b
 ```
 
-That is the command for build `ade7bec1` (1 × 8 H200 on gpu-high). Settings from `parameters.yaml`:
+That is build `ade7bec1` (1 × 8 H200 on gpu-high). Settings from `parameters.yaml`:
 
 | Setting | Value | Note |
 |---|---|---|
@@ -64,12 +79,7 @@ snapshot `af1e3227`, sha256 matches) and `granite-swash-2b-g42tok` (weights syml
 tokenizer/chat template; no `_experts_implementation`, since there are no experts). Build `d6c461b2`:
 
 ```bash
-GB_ENVIRONMENT=STANDALONE PATH=$HOME/.local/bin:$PATH .venv/bin/gb build start \
-  -f recipes/granite4-defense-lora/slurm/sft-swash-3b/build.yaml --skip-version-check \
-  --param MODEL_URI=env:///proj/granite-build/g4os/models/granite-swash-2b-g42tok \
-  --param EXPERIMENT=sft_swash_2b_v2_odm_90_10_entropy_xml \
-  --param QUEUE=gpu-high --param QOS=grp_granite_dot_build_high_1n \
-  --param NUM_NODES=1 --param TIME_LIMIT=2-00:00:00
+recipes/granite4-defense-lora/slurm/sft-swash/train.sh swash-2b
 ```
 
 ~1.0 s/step (vs 2.3 s for swash-3b). The swash eval image serves it too (vLLM's `granite.py` handles
@@ -99,12 +109,7 @@ knowledge data from pretraining.
   first gpu-high submit, `2babb049`, was cancelled while queued behind swash-2b):
 
 ```bash
-GB_ENVIRONMENT=STANDALONE PATH=$HOME/.local/bin:$PATH .venv/bin/gb build start \
-  -f recipes/granite4-defense-lora/slurm/sft-swash-3b/build.yaml --skip-version-check \
-  --param MODEL_URI=env:///proj/granite-build/g4os/models/granite-5.1-20b-sft-preview-r261020a \
-  --param EXPERIMENT=sft_g51_20b_v2_odm_90_10_entropy_xml \
-  --param PER_DEVICE_TRAIN_BATCH_SIZE=4 --param SAVE_ONLY_MODEL=true --param LEARNING_RATE=1e-05 \
-  --param QUEUE=gpu-mid --param QOS= --param NUM_NODES=1 --param TIME_LIMIT=3-00:00:00
+recipes/granite4-defense-lora/slurm/sft-swash/train.sh g51-20b
 ```
 
 Baseline (untrained) eval: build `ef8da6f6`, `NAME=eval_g51_20b_base`, `MODEL_PATH` = the model dir.
