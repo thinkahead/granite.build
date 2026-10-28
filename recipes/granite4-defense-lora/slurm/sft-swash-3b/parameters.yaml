@@ -48,6 +48,8 @@ ODM_UPDATE_INTERVAL: 250
 # Full-model checkpoints (model + optimizer state, ~40 GB each); 500 bounds the work lost to a
 # preemption or retry (MAX_RETRIES resumes from the latest checkpoint).
 SAVE_STEPS: 500
+# true skips optimizer state in checkpoints (~4x smaller; not resumable).
+SAVE_ONLY_MODEL: false
 LEARNING_RATE: "1e-05"
 PER_DEVICE_TRAIN_BATCH_SIZE: 5
 # Effective batch = PER_DEVICE_TRAIN_BATCH_SIZE x GRADIENT_ACCUMULATION_STEPS x NUM_NODES x 8.

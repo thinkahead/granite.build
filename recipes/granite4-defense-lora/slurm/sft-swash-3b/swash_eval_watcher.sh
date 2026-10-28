@@ -9,12 +9,12 @@ SSH="ssh -o BatchMode=yes -o ConnectTimeout=30 -i $HOME/granite_build_id_ed25519
 GB="env GB_ENVIRONMENT=STANDALONE PATH=$HOME/.local/bin:$PATH $HOME/granite.build/.venv/bin/gb"
 log() { echo "$(date '+%F %T') $*"; }
 cd "$HOME/granite.build"
-for N in 1000 2000 3000 4000 5000; do
+for N in ${SWASH_STEPS:-1000 2000 3000 4000 5000}; do
   grep -q "^$N " "$BUILDS" 2>/dev/null && { log "step $N: already started, skipping"; continue; }
   log "step $N: waiting for checkpoint-$N"
   while true; do
     # saved = the trainer logged the save (any attempt's log) and the weights + state are on disk
-    if $SSH "tr '\r' '\n' < <(cat $R/train_rank0*.log) | grep -aqE 'checkpoint saved in $R/checkpoint-$N\$' && test -s $R/checkpoint-$N/model.safetensors && test -s $R/checkpoint-$N/trainer_state.json" 2>/dev/null; then
+    if $SSH "tr '\r' '\n' < <(cat $R/train_rank0*.log) | grep -aqE 'checkpoint saved in $R/checkpoint-$N\$' && { test -s $R/checkpoint-$N/model.safetensors || test -s $R/checkpoint-$N/model.safetensors.index.json; } && test -s $R/checkpoint-$N/trainer_state.json" 2>/dev/null; then
       break
     fi
     st=$($GB build status $B --skip-version-check 2>/dev/null | grep -oE "Status: [^ ]+ [A-Z]+" | head -1 | awk '{print $NF}')

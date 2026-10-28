@@ -75,11 +75,46 @@ GB_ENVIRONMENT=STANDALONE PATH=$HOME/.local/bin:$PATH .venv/bin/gb build start \
 ~1.0 s/step (vs 2.3 s for swash-3b). The swash eval image serves it too (vLLM's `granite.py` handles
 `GraniteSWAForCausalLM` with per-layer sliding windows and sinks).
 
+### granite-5.1-20b-sft-preview (same recipe, larger swash)
+
+`ibm-research/granite-5.1-20b-sft-preview-r261020a` is the same architecture as swash-3b
+(`GraniteMoeSWAForCausalLM`), scaled up: 40 layers (10 full-attention + 30 sliding-window 128, sinks),
+56 experts top-4 and **no shared expert**, ~22B total / ~2.3B active, untied embeddings, a per-layer
+RoPE base (`layer_rope_theta`: 6e7 on full-attention layers, 5e5 on sliding ones), 524288 context.
+Unlike the swash base models it is already SFT'd (thinking model), and should already have the defense
+knowledge data from pretraining.
+
+- **No `-g42tok` dir needed.** Its tokenizer is the 4.2 one (identical vocab and all 96 special
+  tokens), eos/pad are already `<|im_end|>` (100257), and `chat_template.jinja` is byte-identical to
+  the 4.2 template (bar a trailing newline). A rendered defense sample matches the 4.2 rendering
+  exactly; with `enable_thinking=False` both end the generation prompt in `<think></think>`, as the
+  training data and the eval's nothink patch expect. Model dir:
+  `/proj/granite-build/g4os/models/granite-5.1-20b-sft-preview-r261020a` (copy of HF snapshot
+  `d731c5f2`, all 9 shards sha256-verified).
+- **Library support is already there:** the swash transformers 5.18 overlay (model card requires
+  >= 5.17.0) handles `layer_rope_theta` and `shared_intermediate_size: 0`; the swash eval image's vLLM
+  serves it via `granitemoeshared.py` (per-layer RoPE, sinks, untied `lm_head`).
+- **Settings:** batch 4 per GPU (vs 5), `SAVE_ONLY_MODEL=true` (a full checkpoint with optimizer
+  state is ~220 GB; model-only ~44 GB, but not resumable), LR 1e-5. Build `f4906899` (gpu-mid; a
+  first gpu-high submit, `2babb049`, was cancelled while queued behind swash-2b):
+
+```bash
+GB_ENVIRONMENT=STANDALONE PATH=$HOME/.local/bin:$PATH .venv/bin/gb build start \
+  -f recipes/granite4-defense-lora/slurm/sft-swash-3b/build.yaml --skip-version-check \
+  --param MODEL_URI=env:///proj/granite-build/g4os/models/granite-5.1-20b-sft-preview-r261020a \
+  --param EXPERIMENT=sft_g51_20b_v2_odm_90_10_entropy_xml \
+  --param PER_DEVICE_TRAIN_BATCH_SIZE=4 --param SAVE_ONLY_MODEL=true --param LEARNING_RATE=1e-05 \
+  --param QUEUE=gpu-mid --param QOS= --param NUM_NODES=1 --param TIME_LIMIT=3-00:00:00
+```
+
+Baseline (untrained) eval: build `ef8da6f6`, `NAME=eval_g51_20b_base`, `MODEL_PATH` = the model dir.
+
 ### Evaluating each checkpoint as it lands
 
 [`swash_eval_watcher.sh`](swash_eval_watcher.sh) (copy it to the sandbox home) polls a run every 5 min and starts the 14-category
-evals for checkpoints 1000…5000 once each save has completed (the trainer logged it and
-`model.safetensors` + `trainer_state.json` are on disk; a save lands only after that step's eval +
+evals for checkpoints 1000…5000 (`SWASH_STEPS` overrides the list) once each save has completed (the
+trainer logged it and `model.safetensors` or a sharded `model.safetensors.index.json`, plus
+`trainer_state.json`, are on disk; a save lands only after that step's eval +
 ODM pass). It records started builds in `~/<TAG>_eval_builds.txt`, skips steps already there on a
 restart, and exits if the training build fails.
 

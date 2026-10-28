@@ -144,6 +144,8 @@ granite.build:
               eval_steps: $${EVAL_STEPS} # keep aligned with ODM update_interval
               save_strategy: "steps"
               save_steps: $${SAVE_STEPS}
+              # true: weights + tokenizer only (no optimizer/RNG state), so a checkpoint can't be resumed.
+              save_only_model: $${SAVE_ONLY_MODEL}
               optim: adamw_torch
               adam_beta1: '0.9'
               adam_beta2: '0.95'
