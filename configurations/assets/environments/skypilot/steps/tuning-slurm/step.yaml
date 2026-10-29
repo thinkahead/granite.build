@@ -226,6 +226,18 @@ environment_configs:
             export PATCH_FILE
             echo "tuning-slurm: site-packages $SITE_PACKAGES"
 
+            # ── Batched ODM reward pass (opt-in: launcher_config.envs.ODM_REWARD_BATCH_SIZE > 1) ──
+            # src/odm_batched_reward.py pads only the ODM reward-pass batches so they can be
+            # batched under padding_free training; loaded in every rank via sitecustomize.
+            if [ "${ODM_REWARD_BATCH_SIZE:-1}" -gt 1 ] 2>/dev/null; then
+              ODM_HOOK_DIR="$WORK/odm-hook"
+              mkdir -p "$ODM_HOOK_DIR"
+              cp ./src/odm_batched_reward.py "$ODM_HOOK_DIR/"
+              printf 'import odm_batched_reward  # noqa: F401\n' > "$ODM_HOOK_DIR/sitecustomize.py"
+              export PYTHONPATH="$ODM_HOOK_DIR${PYTHONPATH:+:$PYTHONPATH}"
+              echo "tuning-slurm: batched ODM reward pass enabled (ODM_REWARD_BATCH_SIZE=$ODM_REWARD_BATCH_SIZE)"
+            fi
+
             # ── Per-node setup commands (in-container patches etc.) ──
             # Each runs under `set -e` and aborts the job on failure: the commands patch
             # site-packages and then `test`/`grep -q` the result, and the run script itself

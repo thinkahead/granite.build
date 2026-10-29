@@ -83,6 +83,9 @@ granite.build:
                 zone: "$${QUEUE}"
               envs:
                 NCCL_TIMEOUT: "10800000" # 3 hours
+                # >1 batches the ODM reward pass (padded; training stays padding-free). See the
+                # tuning-slurm step's src/odm_batched_reward.py. 1 = upstream behaviour.
+                ODM_REWARD_BATCH_SIZE: "$${ODM_REWARD_BATCH_SIZE}"
             tuning_data_config:
               dataprocessor:
                 type: odm
@@ -195,7 +198,7 @@ granite.build:
               # transformers 5.18 (granitemoe_swa) + patched fms-hf-tuning, ahead of the image's
               # site-packages. Set after the step resolved $SITE_PACKAGES, so the ODM/filelock
               # patches below still target the image's files.
-              - export PYTHONPATH="$${FMS_OVERLAY}:$${TRANSFORMERS_LIB}:$SITE_PACKAGES"
+              - export PYTHONPATH="${ODM_HOOK_DIR:+$ODM_HOOK_DIR:}$${FMS_OVERLAY}:$${TRANSFORMERS_LIB}:$SITE_PACKAGES"
               - |
                 "$PYBIN" -c 'import transformers, tuning.sft_trainer as s; print("SWASH_STACK transformers", transformers.__version__, "sft_trainer", s.__file__)'
               # Paths come from the step: $FILELOCK_UNIX, $ODM_DATASET (resolved per image).

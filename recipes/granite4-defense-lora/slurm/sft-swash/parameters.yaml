@@ -50,6 +50,11 @@ ODM_UPDATE_INTERVAL: 250
 SAVE_STEPS: 500
 # true skips optimizer state in checkpoints (~4x smaller; not resumable).
 SAVE_ONLY_MODEL: false
+# Batch size of the ODM reward pass (1 = upstream, one example per forward). >1 pads only
+# the reward-pass batches; training stays padding-free. 8 on granite-5.1-20b (2-GPU FSDP test,
+# 2026-10-29): 2.9x faster reward pass, rewards within ~2e-4 of batch 1. See the tuning-slurm
+# step README.
+ODM_REWARD_BATCH_SIZE: 1
 LEARNING_RATE: "1e-05"
 PER_DEVICE_TRAIN_BATCH_SIZE: 5
 # Effective batch = PER_DEVICE_TRAIN_BATCH_SIZE x GRADIENT_ACCUMULATION_STEPS x NUM_NODES x 8.
