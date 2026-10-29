@@ -222,6 +222,7 @@ granite.build:
               - sed -i 's/vocab_size=32000/vocab_size=100352/g' "$ODM_DATASET"
               - test "$(grep -c 'vocab_size=100352' "$ODM_DATASET")" -ge 2
               - test "$(grep -c 'vocab_size=32000' "$ODM_DATASET")" = 0
+              - echo "ODM_VOCAB_PATCH_APPLIED $(grep -o 'vocab_size=[0-9]*' "$ODM_DATASET" | sort | uniq -c | tr -s ' ' | tr '\n' ';')"
               # ODM MAB numerical stability (renormalize weights each update + clamp exp exponent).
               # $PATCH_FILE = exact-string replace with an occurrence guard (step's src/patch_file.py;
               # the v3.2.2 image has no perl).

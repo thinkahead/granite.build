@@ -109,6 +109,8 @@ Outputs land in `/proj/granite-build/g4os/defense/runs/<build_id>/sftlora_g42_3b
 - **FastAPI 0.140.0** in the gbserver venv when using `thinkahead/skypilot@docker-host-ami-override`;
   newer FastAPI crashes that branch's SkyPilot API server. See the step README.
 
+**ODM `vocab_size`:** the entropy reward's normalisation is patched from 32000 to 100352, which is the output-layer size of every model these recipes train (4.2 3b/8b/30b, swash-3b, swash-2b, granite-5.1-20b). Per-model table and how to check a new model: [tuning-slurm step README](../../../../configurations/assets/environments/skypilot/steps/tuning-slurm/README.md#odm-entropy-reward-vocab_size).
+
 ## Validated runs
 
 | Build | Steps | Result |

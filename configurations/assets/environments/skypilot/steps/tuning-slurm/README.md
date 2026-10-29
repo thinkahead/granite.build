@@ -120,3 +120,38 @@ Python 3.12 system install, fms-hf-tuning `ea8c6c737`, torch 2.7.0a0 (NGC 25.02)
 transformers 4.55.4, peft 0.18.1, accelerate 1.13.0, fms-acceleration-odm 0.1.5. Its root
 filesystem is read-only unless the container is created `--container-writable` (SkyPilot
 does), which `setup_commands` that `sed -i` site-packages rely on.
+
+## `setup_commands` abort the job when they fail
+
+Each entry in `config.setup_commands` runs under `set -e` with an `ERR` trap, so any failing
+command stops the job before training, logging `tuning-slurm: setup_commands[N] FAILED; aborting`
+(each successful one logs `... OK`). The recipes patch site-packages and then `test`/`grep -q` the
+result; without this, a patch that stopped matching after an image or package upgrade was skipped
+silently, because the run script itself is not `set -e`.
+
+## ODM entropy reward: `vocab_size`
+
+fms-acceleration-odm's entropy reward divides each token's entropy by `log(vocab_size)` (the
+maximum possible entropy) so the reward lands in [0, 1]. It hardcodes `vocab_size=32000` at every
+`compute_reward` call site in `fms_acceleration_odm/odm/dataset.py` (2 in 0.1.5, 3 in 0.1.6). The
+recipes `sed` it to **100352** and check it (`setup_commands`), then log
+`ODM_VOCAB_PATCH_APPLIED <count> vocab_size=100352;` to the training log.
+
+The right value is the size of the model's **output layer**: `config.vocab_size`, the number of rows
+of `lm_head.weight` (or of `embed_tokens.weight` when embeddings are tied). It does not depend on
+the chat template, and depends on the tokenizer only through the model: a tokenizer change without
+resizing the model doesn't change it, and a padded output layer can be larger than the tokenizer.
+Verified from each model's weights (2026-10-29):
+
+| Model | `config.vocab_size` | Output-layer rows | Tokenizer tokens | Tied embeddings |
+|---|---|---|---|---|
+| granite-4.2-3b | 100352 | 100352 (`lm_head`) | 100352 | no |
+| granite-4.2-8b | 100352 | 100352 (`lm_head`) | 100352 | no |
+| granite-4.2-30b | 100352 | 100352 (`lm_head`) | 100352 | no |
+| granite-swash-3b-a600m (`-g42tok`) | 100352 | 100352 (`embed_tokens`) | 100352 | yes |
+| granite-swash-2b (`-g42tok`) | 100352 | 100352 (`embed_tokens`) | 100352 | yes |
+| granite-5.1-20b-sft-preview-r261020a | 100352 | 100352 (`lm_head`) | 100352 | no |
+
+So 100352 is correct for every model these recipes train. **A model with a different output size
+needs a different value**: check `lm_head.weight`'s shape in its safetensors header (not just
+`config.json`) and change both the `sed` and the `test` in the recipe.

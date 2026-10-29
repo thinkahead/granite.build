@@ -315,6 +315,8 @@ The two unitxt fixes and the wrapper are no-ops on the vLLM 0.11 image the 4.2 e
 `SamplingParams` fields accepted; 4.2 models allow ≥ 32768; scripts with a `__main__` guard run as
 before).
 
+**ODM `vocab_size`:** the entropy reward's normalisation is patched from 32000 to 100352, which is the output-layer size of every model these recipes train (4.2 3b/8b/30b, swash-3b, swash-2b, granite-5.1-20b). Per-model table and how to check a new model: [tuning-slurm step README](../../../../configurations/assets/environments/skypilot/steps/tuning-slurm/README.md#odm-entropy-reward-vocab_size).
+
 ## Validated runs
 
 | Build | What | Result |

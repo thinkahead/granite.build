@@ -227,8 +227,17 @@ environment_configs:
             echo "tuning-slurm: site-packages $SITE_PACKAGES"
 
             # ── Per-node setup commands (in-container patches etc.) ──
+            # Each runs under `set -e` and aborts the job on failure: the commands patch
+            # site-packages and then `test`/`grep -q` the result, and the run script itself
+            # is not `set -e`, so a patch that stopped matching (image or package upgrade)
+            # would otherwise be skipped silently and training would run unpatched.
             {% for cmd in config.setup_commands %}
+            trap 'echo "tuning-slurm: setup_commands[{{ loop.index0 }}] FAILED; aborting" >&2' ERR
+            set -e
             {{ cmd }}
+            set +e
+            trap - ERR
+            echo "tuning-slurm: setup_commands[{{ loop.index0 }}] OK"
             {% endfor %}
 
             # ── Render configs + the launch command (per node: machine_rank differs) ──
