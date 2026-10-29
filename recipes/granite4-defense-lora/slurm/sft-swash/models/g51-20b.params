@@ -22,10 +22,11 @@ TIME_LIMIT=2-00:00:00
 # Host RAM (GB). The 256 GB default was OOM-killed in data preparation (build 91ee9c05): 8 ranks
 # each hold the 44 GB model while 96 tokenizer workers fork. gpu-high nodes have 2 TB.
 MEMORY=1600
-# 2 gpu-high nodes (16 x H200; quota is 24 GPUs since 2026-10-29). Global batch 64 instead of 32,
-# so 2500 steps cover the same 160k sequences as 5000 steps on 1 node.
-NUM_NODES=2
-MAX_STEPS=2500
+# 1 gpu-high node, 5000 steps. Multi-node gpu-high jobs are re-QOS'd by BlueVela to
+# grp_granite_dot_build_high (0 GPUs) and never start (build f41df624, 2026-10-29); the
+# 24-GPU grp_granite_dot_build_high_1n only takes single-node jobs.
+NUM_NODES=1
+MAX_STEPS=5000
 SAVE_STEPS=500
 # A retry restarts from the base model rather than resuming from this run's checkpoints.
 RESUME_FROM_CHECKPOINT=false
