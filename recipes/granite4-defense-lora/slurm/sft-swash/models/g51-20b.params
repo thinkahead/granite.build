@@ -4,8 +4,17 @@
 MODEL_URI=env:///proj/granite-build/g4os/models/granite-5.1-20b-sft-preview-r261020a-eager
 EXPERIMENT=sft_g51_20b_v2_odm_90_10_entropy_xml
 PER_DEVICE_TRAIN_BATCH_SIZE=4
-# A full checkpoint with optimizer state is ~220 GB; model-only ~44 GB (not resumable).
-SAVE_ONLY_MODEL=true
+# Full checkpoints (weights + optimizer + scheduler + RNG + ODM state) so a run can resume
+# (MAX_RETRIES resumes from the latest). Model-only would be ~82 GB but not resumable, which
+# blocked resuming build 1e20c15f to turn on reward batching (2026-10-29). 10 checkpoints at the
+# full size are a few TB of the ~18 TB free on /proj/granite-build.
+SAVE_ONLY_MODEL=false
+# Batched ODM reward pass (tuning-slurm src/odm_batched_reward.py): 2.9x faster on this model in
+# the 2-GPU FSDP test, rewards within ~2e-4 of batch 1. One eval/ODM update every 500 steps
+# instead of 250: ~70 min per update at batch 1 made evals ~23 h of build 1e20c15f's ~30 h.
+ODM_REWARD_BATCH_SIZE=8
+EVAL_STEPS=500
+ODM_UPDATE_INTERVAL=500
 # gpu-high: not preemptible, so model-only checkpoints are safe. Max 2 days (~12-15 h needed).
 QUEUE=gpu-high
 QOS=grp_granite_dot_build_high_1n
