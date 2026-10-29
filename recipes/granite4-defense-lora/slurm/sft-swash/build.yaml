@@ -142,6 +142,10 @@ granite.build:
 <% endfor %>
             tuning_config:
               ddp_timeout: "10800" # 3 hours
+              # "true" (the step default) makes a retry resume from this run's latest
+              # checkpoint; "false" restarts it from the base model. Each run has its own
+              # output dir, so this never picks up another build's checkpoints.
+              resume_from_checkpoint: "$${RESUME_FROM_CHECKPOINT}"
               logging_steps: '10'
               max_steps: $${MAX_STEPS}
               eval_strategy: "steps"

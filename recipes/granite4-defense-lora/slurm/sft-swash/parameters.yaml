@@ -50,6 +50,9 @@ ODM_UPDATE_INTERVAL: 250
 SAVE_STEPS: 500
 # true skips optimizer state in checkpoints (~4x smaller; not resumable).
 SAVE_ONLY_MODEL: false
+# Retry resumes from this run's latest checkpoint (needs SAVE_ONLY_MODEL: false). "false" = every
+# retry restarts from the base model.
+RESUME_FROM_CHECKPOINT: "true"
 # Batch size of the ODM reward pass (1 = upstream, one example per forward). >1 pads only
 # the reward-pass batches; training stays padding-free. 8 on granite-5.1-20b (2-GPU FSDP test,
 # 2026-10-29): 2.9x faster reward pass, rewards within ~2e-4 of batch 1. See the tuning-slurm
