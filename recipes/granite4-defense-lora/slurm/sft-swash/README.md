@@ -146,7 +146,8 @@ SWASH_BUILD=<training build id> SWASH_EXP=<EXPERIMENT> SWASH_TAG=<label> \
   setsid nohup ~/swash_eval_watcher.sh >> ~/<label>_eval_watcher.log 2>&1 < /dev/null &
 ```
 
-Evals are named `eval_<TAG>_<step>`. Defaults are the swash-3b run (`ade7bec1`, tag `swash_3b_ade7bec1`).
+Evals run on gpu-mid by default; `SWASH_QUEUE=gpu-low` uses gpu-low with `QOS=burst` (no GPU cap,
+but preemptible). Evals are named `eval_<TAG>_<step>`. Defaults are the swash-3b run (`ade7bec1`, tag `swash_3b_ade7bec1`).
 
 ### Timing (build `ade7bec1`)
 
