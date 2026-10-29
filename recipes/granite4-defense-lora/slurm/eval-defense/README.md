@@ -510,44 +510,52 @@ individual nodes), which recovered them.
 
 ## Checkpoint comparison: granite-swash-2b full fine-tune (`d6c461b2`)
 
-**Training done; 4 categories still being rerun (2026-10-28).** Dense `GraniteSWAForCausalLM`
+**Complete (2026-10-29).** Dense `GraniteSWAForCausalLM`
 (2.14B, no experts), same recipe and data as swash-3b ([`sft-swash`](../sft-swash/README.md),
 `train.sh swash-2b`). 5000 steps in 7h43m on gpu-high, final training loss 0.014. All 14
 categories, gpu-mid, swash eval image. swash-3b's last two checkpoints and the untrained
-granite-5.1-20b are alongside. **Bold** = best swash-2b checkpoint. "—" = rerun pending.
+granite-5.1-20b are alongside. **Bold** = best swash-2b checkpoint.
 
 | Category | 2b 500 | 1000 | 2000 | 3000 | 4000 | 5000 (= final) | 3b 4000 | 3b 5000 | 5.1-20b untrained |
 |---|---|---|---|---|---|---|---|---|---|
 | router | 0.820 | 0.864 | 0.903 | 0.927 | 0.931 | **0.938** | 0.936 | 0.940 | 0.713 |
 | inventory | 0.668 | 0.678 | 0.810 | 0.916 | 0.925 | **0.928** | 0.930 | 0.934 | 0.127 |
 | nonstategroups | 0.768 | 0.812 | 0.854 | 0.892 | 0.900 | **0.907** | 0.906 | 0.903 | 0.007 |
-| news | 0.569 | 0.603 | 0.736 | — | 0.803 | **0.808** | 0.833 | 0.837 | 0.000 |
-| profiles | 0.701 | 0.745 | — | 0.778 | **0.821** | 0.802 | 0.780 | 0.811 | 0.000 |
-| military | 0.566 | 0.598 | 0.679 | 0.732 | **0.770** | — | 0.808 | 0.805 | 0.000 |
+| news | 0.569 | 0.603 | 0.736 | 0.796 | 0.803 | **0.808** | 0.833 | 0.837 | 0.000 |
+| profiles | 0.701 | 0.745 | 0.756 | 0.778 | **0.821** | 0.802 | 0.780 | 0.811 | 0.000 |
+| military | 0.566 | 0.598 | 0.679 | 0.732 | 0.770 | **0.785** | 0.808 | 0.805 | 0.000 |
 | analysis | 0.592 | 0.664 | 0.717 | 0.745 | 0.763 | **0.774** | 0.763 | 0.756 | 0.000 |
 | organization | 0.613 | 0.646 | 0.695 | 0.698 | **0.716** | 0.715 | 0.714 | 0.711 | 0.003 |
-| installations | 0.606 | 0.577 | 0.623 | **0.691** | — | 0.689 | 0.675 | 0.686 | 0.012 |
+| installations | 0.606 | 0.577 | 0.623 | **0.691** | 0.688 | 0.689 | 0.675 | 0.686 | 0.012 |
 | ships | 0.657 | 0.613 | 0.656 | 0.663 | **0.682** | 0.676 | 0.654 | 0.638 | 0.014 |
 | equipment | **0.566** | 0.502 | 0.531 | 0.513 | 0.508 | 0.524 | 0.568 | 0.548 | 0.019 |
 | events | 0.206 | 0.175 | 0.181 | 0.217 | 0.228 | **0.231** | 0.218 | 0.204 | 0.001 |
 | knowledge | 0.460 | 0.519 | 0.447 | 0.471 | **0.535** | 0.489 | 0.406 | 0.416 | 0.686 |
 | knowledge_with_tools | 0.397 | 0.383 | **0.459** | 0.451 | 0.413 | 0.414 | 0.435 | 0.435 | 0.769 |
-| **Mean, 12 tool-calling** | 0.611 | 0.623 | (11 of 12) | (11 of 12) | (11 of 12) | (11 of 12) | 0.732 | 0.731 | 0.075 |
+| **Mean, 12 tool-calling** | 0.611 | 0.623 | 0.679 | 0.714 | 0.728 | **0.731** | 0.732 | 0.731 | 0.075 |
 | **Mean, 2 knowledge** | 0.429 | 0.451 | 0.453 | 0.461 | **0.474** | 0.452 | 0.421 | 0.425 | **0.728** |
-| **Mean, all 14** | 0.585 | 0.598 | — | — | — | — | 0.688 | 0.687 | 0.168 |
+| **Mean, all 14** | 0.585 | 0.598 | 0.646 | 0.678 | **0.692** | 0.691 | 0.688 | 0.687 | 0.168 |
 
-**Reading it so far:**
+**Reading it:**
 
-- **swash-2b gets close to swash-3b on tool calling** with a third fewer parameters and no
-  experts. Using only the 11 categories scored at both, step 5000 averages 0.727 vs swash-3b's
-  0.724. Means over all 12 come once the reruns land.
-- **Tool calling plateaus from 4000, like swash-3b**: every tool-calling category moves less
-  than ±0.02 from 4000 to 5000. Knowledge drops 0.046 (0.535 → 0.489), so checkpoint-4000 has
-  the best knowledge mean.
+- **swash-2b matches swash-3b, with a third fewer parameters and no experts.** Tool calling at step
+  5000: 0.731 for both. All 14: 0.691 vs 0.687 (swash-2b's slightly better knowledge makes up the
+  difference). It also equals the 4.2 3b LoRA final on tool calling (0.731) and is 0.01 below the
+  8b and 30b.
+- **Tool calling plateaus from 4000, like swash-3b**: every tool-calling category moves less than
+  ±0.02 from 4000 to 5000. Knowledge drops 0.046 (0.535 → 0.489), so checkpoint-4000 has the best
+  knowledge and all-14 means (0.692) and is within 0.003 on tool calling.
 - **Equipment doesn't improve with training** (0.566 at 500, 0.50–0.53 after), unlike every other
   category; swash-3b reaches 0.55–0.57.
 - **Knowledge is slightly better than swash-3b but still well below the 4.2 models** (0.45–0.47
   vs 0.54): a base model trained on tool-calling data only.
+- **Recommendation:** checkpoint-4000 (best all-14 and knowledge), or `final/` for the last 0.003 of
+  tool calling.
+
+Builds (gpu-mid): `cd1d62df` (500), `833b074f` + `20df7e86` (1000), `c00998c5` + `d631e536` +
+`a00eba6f` + `aa0d9abb` (2000), `15606dc1` + `d57a96d9` (3000), `1aafe5d6` + `36c8049c` (4000),
+`3caa502b` + `bf53d861` (5000). The reruns replaced categories lost to preemption, the 16:38
+sandbox restart, a job cancelled before its result was copied, and one eval error.
 
 **granite-5.1-20b, untrained (`eval_g51_20b_base`): the starting point for the 20b fine-tune.**
 
@@ -558,13 +566,6 @@ granite-5.1-20b are alongside. **Bold** = best swash-2b checkpoint. "—" = reru
   "How many F-35Bs does the US own" it filters on `operator` + `equipmentOwnership` with the full
   name "F-35B Lightning II" and packs the list into one string; the reference is
   `equipment: F-35B` + `countryOfOperation: United States`. That schema is what the SFT teaches.
-
-**Reruns pending** (same `NAME`, so results land in the same folders):
-
-| Missing | Why | Rerun build |
-|---|---|---|
-| 2000 profiles, 3000 news, 4000 installations | the eval finished (exit 0) but its result file was lost when the job was cancelled before it was copied | `aa0d9abb`, `d57a96d9`, `36c8049c` |
-| 5000 military | eval exited with code 1 before writing a result | `bf53d861` |
 
 Results: `/proj/granite-build/g4os/defense/evals/eval_swash_2b_d6c461b2_<step>/<category>/` and
 `/proj/granite-build/g4os/defense/evals/eval_g51_20b_base/<category>/`.
@@ -579,4 +580,6 @@ Results: `/proj/granite-build/g4os/defense/evals/eval_swash_2b_d6c461b2_<step>/<
 | `bd82679d`, `e53de4e2`, `bb153c64`, `66c72d49` (+ rerun `94d437b2`) | 3b `cd2bfbc2` checkpoints 1000–4000 | merge + 14 categories each | SUCCESS; see "Checkpoint comparison: granite-4.2-3b" |
 | `07d7d141`, `36aa183d`, `5befa15e`, `f8573b39`, `befaf36c` (+ reruns `2645a7a3`, `f1c1e7cd`) | 8b `99f8bbec` checkpoints 1000–5000 | merge + 14 categories each | SUCCESS; see "Checkpoint comparison: granite-4.2-8b" |
 | `5df38202`/`8565a6d5`, `3173d686`, `7d68fc45`, `913701d7`/`d4c58beb`, `64dc4ef7`, `fbdf40e0` | swash-3b `ade7bec1` checkpoints 500–5000 | `MODEL_PATH` + swash image, 14 categories each | SUCCESS; see "Checkpoint comparison: granite-swash-3b" |
+| `cd1d62df`, `833b074f`/`20df7e86`, `c00998c5`/`d631e536`/`a00eba6f`/`aa0d9abb`, `15606dc1`/`d57a96d9`, `1aafe5d6`/`36c8049c`, `3caa502b`/`bf53d861` | swash-2b `d6c461b2` checkpoints 500–5000 | `MODEL_PATH` + swash image, 14 categories each | SUCCESS (after reruns); see "Checkpoint comparison: granite-swash-2b" |
+| `ef8da6f6` / `ddeb9af7` | granite-5.1-20b, untrained | `MODEL_PATH` + swash image, 14 categories | SUCCESS: knowledge 0.728, tool calling 0.075 |
 | `567cc0ee` / `18c5342d` | 3b `cd2bfbc2` `final/` | regression after the vLLM-0.30 step changes (inventory, knowledge) | SUCCESS: inventory 0.938 (unchanged), knowledge 0.616 (0.633 before) |
