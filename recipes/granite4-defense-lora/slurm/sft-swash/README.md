@@ -8,7 +8,7 @@ file under [`models/`](models/):
 |---|---|---|
 | `ibm-granite/granite-swash-3b-a600m` | `swash-3b.params` | the `parameters.yaml` defaults; see below |
 | `ibm-granite/granite-swash-2b` | `swash-2b.params` | [granite-swash-2b](#granite-swash-2b-same-recipe-other-model) |
-| `ibm-research/granite-5.1-20b-sft-preview-r261020a` | `g51-20b.params` | [granite-5.1-20b](#granite-51-20b-sft-preview-same-recipe-larger-swash) |
+| `ibm-research/granite-5.1-20b-sft-preview-r261020a` | `g51-20b.params` | [granite-5.1-20b](#granite-51-20b-sft-preview-same-recipe-larger-swash): needs eager experts and 1600 GB host RAM |
 
 ```bash
 cd ~/granite.build
@@ -94,25 +94,43 @@ RoPE base (`layer_rope_theta`: 6e7 on full-attention layers, 5e5 on sliding ones
 Unlike the swash base models it is already SFT'd (thinking model), and should already have the defense
 knowledge data from pretraining.
 
-- **No `-g42tok` dir needed.** Its tokenizer is the 4.2 one (identical vocab and all 96 special
-  tokens), eos/pad are already `<|im_end|>` (100257), and `chat_template.jinja` is byte-identical to
-  the 4.2 template (bar a trailing newline). A rendered defense sample matches the 4.2 rendering
-  exactly; with `enable_thinking=False` both end the generation prompt in `<think></think>`, as the
-  training data and the eval's nothink patch expect. Model dir:
-  `/proj/granite-build/g4os/models/granite-5.1-20b-sft-preview-r261020a` (copy of HF snapshot
-  `d731c5f2`, all 9 shards sha256-verified).
+**Model dir:** `/proj/granite-build/g4os/models/granite-5.1-20b-sft-preview-r261020a-eager`. Every file
+is a symlink to `../granite-5.1-20b-sft-preview-r261020a` (copy of HF snapshot `d731c5f2`, all 9
+shards sha256-verified) except `config.json`, which adds `_experts_implementation: eager`, as
+swash-3b's does.
+
+- **Tokenizer and chat template are used as-is.** They are the 4.2 ones (identical vocab and all 96
+  special tokens), eos/pad are already `<|im_end|>` (100257), and `chat_template.jinja` is
+  byte-identical to the 4.2 template (bar a trailing newline). A rendered defense sample matches the
+  4.2 rendering exactly; with `enable_thinking=False` both end the generation prompt in
+  `<think></think>`, as the training data and the eval's nothink patch expect.
 - **Library support is already there:** the swash transformers 5.18 overlay (model card requires
   >= 5.17.0) handles `layer_rope_theta` and `shared_intermediate_size: 0`; the swash eval image's vLLM
   serves it via `granitemoeshared.py` (per-layer RoPE, sinks, untied `lm_head`).
-- **Settings:** batch 4 per GPU (vs 5), `SAVE_ONLY_MODEL=true` (a full checkpoint with optimizer
-  state is ~220 GB; model-only ~44 GB, but not resumable), LR 1e-5. Build `f4906899` (gpu-mid; a
-  first gpu-high submit, `2babb049`, was cancelled while queued behind swash-2b):
+
+**Settings** (`models/g51-20b.params`): batch 4 per GPU (vs 5), LR 1e-5, gpu-high with a 2-day limit,
+`SAVE_ONLY_MODEL=true` (a full checkpoint with optimizer state is ~220 GB; model-only ~44 GB, but not
+resumable, which is safe on gpu-high because it isn't preempted), and `MEMORY=1600` GB of host RAM.
 
 ```bash
 recipes/granite4-defense-lora/slurm/sft-swash/train.sh g51-20b
 ```
 
-Baseline (untrained) eval: build `ef8da6f6`, `NAME=eval_g51_20b_base`, `MODEL_PATH` = the model dir.
+**What it took to get running** (2026-10-28/29):
+
+| Build | What happened | Fix |
+|---|---|---|
+| `91ee9c05` | Host RAM OOM-killed in data preparation (28 `oom_kill` events) at the 256 GB default: 8 ranks each load the ~44 GB model while 96 tokenizer workers fork | `MEMORY=1600` (gpu-high nodes have 2 TB; ~200 GB used in practice) |
+| `5bc7d970` | Data prep finished, then **step 0 never completed** in 30 min: GPUs at "100%" but ~120 W of 700 W, one backward thread per rank running | `_experts_implementation: eager` (the `-eager` dir). Without it transformers uses the `grouped_mm` MoE kernels; kd-sandbox had already found `grouped_mm` failing on swash (alignment error), here it stalled instead |
+| `04c8ccb0` | 20-step smoke test with eager experts: **SUCCESS**. ~5.2 s/step steady state, GPUs ~450 W, loss 94.2 (step 10) → 27.1 (step 20), checkpoint and `final/` saved | — |
+
+Time for 5000 steps at 5.2 s/step: ~7.2 h of training, plus data preparation (~30 min) and the 20
+eval/ODM passes. Peak GPU memory was close to full (up to ~140 GB of 141 GB on one GPU, 80–140 GB
+across the 8), so batch 4 is the most that fits.
+
+Full run: build `1e20c15f`. Baseline (untrained) eval: `NAME=eval_g51_20b_base` (builds `ef8da6f6` +
+rerun `ddeb9af7`), `MODEL_PATH` = the original (non-eager) model dir; vLLM doesn't read
+`_experts_implementation`.
 
 ### Evaluating each checkpoint as it lands
 
