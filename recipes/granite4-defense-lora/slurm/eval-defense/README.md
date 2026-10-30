@@ -570,6 +570,50 @@ sandbox restart, a job cancelled before its result was copied, and one eval erro
 Results: `/proj/granite-build/g4os/defense/evals/eval_swash_2b_d6c461b2_<step>/<category>/` and
 `/proj/granite-build/g4os/defense/evals/eval_g51_20b_base/<category>/`.
 
+## Checkpoint comparison: granite-5.1-20b full fine-tune (`57227516`, in progress)
+
+MoE granite-5.1-20b (`-eager` experts), same recipe and data as swash-3b/2b
+([`sft-swash`](../sft-swash/README.md), `train.sh g51-20b`): batch 4 per GPU, LR 1e-5, 5000 steps on
+one gpu-high node, eval/ODM every 500 steps with the batched, chunked-entropy reward pass
+(`ODM_REWARD_BATCH_SIZE=8`). All 14 categories, gpu-mid, swash eval image.
+The earlier run `1e20c15f` (eval/ODM every 250 steps, unbatched reward pass, stopped after
+checkpoint-2000) is alongside.
+
+| Category | untrained | `1e20c15f` 500 | 1000 | 2000 | `57227516` 500 |
+|---|---|---|---|---|---|
+| router | 0.713 | 0.822 | 0.842 | 0.886 | 0.833 |
+| inventory | 0.127 | 0.590 | 0.655 | 0.768 | 0.633 |
+| nonstategroups | 0.007 | 0.763 | 0.776 | 0.814 | 0.692 |
+| news | 0.000 | 0.536 | 0.588 | 0.697 | 0.556 |
+| profiles | 0.000 | 0.720 | 0.684 | 0.675 | 0.735 |
+| military | 0.000 | 0.534 | 0.572 | 0.624 | 0.503 |
+| analysis | 0.000 | 0.538 | 0.654 | 0.695 | 0.543 |
+| organization | 0.003 | 0.592 | 0.603 | 0.624 | 0.588 |
+| installations | 0.012 | 0.488 | 0.566 | 0.611 | 0.533 |
+| ships | 0.014 | 0.625 | 0.653 | 0.640 | 0.602 |
+| equipment | 0.019 | 0.548 | 0.492 | 0.513 | 0.462 |
+| events | 0.001 | 0.200 | 0.155 | 0.225 | 0.174 |
+| knowledge | 0.686 | 0.529 | 0.530 | 0.571 | 0.519 |
+| knowledge_with_tools | 0.769 | 0.424 | 0.447 | 0.410 | 0.375 |
+| **Mean, 12 tool-calling** | 0.075 | 0.580 | 0.603 | 0.648 | 0.571 |
+| **Mean, 2 knowledge** | 0.728 | 0.477 | 0.489 | 0.490 | 0.447 |
+| **Mean, all 14** | 0.168 | 0.565 | 0.587 | 0.625 | 0.553 |
+
+**Reading it (step 500):**
+
+- **Tool calling jumps from 0.075 to 0.571 in 500 steps**, as in the first run (0.580). Router,
+  profiles and analysis match it; equipment (-0.09), nonstategroups (-0.07) and military (-0.03)
+  are lower.
+- **Knowledge drops from 0.728 to 0.447** (0.477 in the first run): fine-tuning on tool-calling data
+  costs part of what the base model knew. It was flat at ~0.49 through step 2000 in the first run.
+- The ~0.01 gap to the first run at step 500 is within checkpoint-to-checkpoint noise this early;
+  the two runs differ in ODM update interval (500 vs 250 steps), so the data mix had one update by
+  step 500 here vs two there.
+
+Builds (gpu-mid): `1845669d` (500).
+Results: `/proj/granite-build/g4os/defense/evals/eval_g51_20b_57227516_<step>/<category>/` and
+`eval_g51_20b_1e20c15f_<step>/`.
+
 ## Runs
 
 | Build | Model | What | Result |
@@ -582,4 +626,5 @@ Results: `/proj/granite-build/g4os/defense/evals/eval_swash_2b_d6c461b2_<step>/<
 | `5df38202`/`8565a6d5`, `3173d686`, `7d68fc45`, `913701d7`/`d4c58beb`, `64dc4ef7`, `fbdf40e0` | swash-3b `ade7bec1` checkpoints 500–5000 | `MODEL_PATH` + swash image, 14 categories each | SUCCESS; see "Checkpoint comparison: granite-swash-3b" |
 | `cd1d62df`, `833b074f`/`20df7e86`, `c00998c5`/`d631e536`/`a00eba6f`/`aa0d9abb`, `15606dc1`/`d57a96d9`, `1aafe5d6`/`36c8049c`, `3caa502b`/`bf53d861` | swash-2b `d6c461b2` checkpoints 500–5000 | `MODEL_PATH` + swash image, 14 categories each | SUCCESS (after reruns); see "Checkpoint comparison: granite-swash-2b" |
 | `ef8da6f6` / `ddeb9af7` | granite-5.1-20b, untrained | `MODEL_PATH` + swash image, 14 categories | SUCCESS: knowledge 0.728, tool calling 0.075 |
+| `1845669d` | granite-5.1-20b `57227516` checkpoint-500 | `MODEL_PATH` + swash image, 14 categories | SUCCESS: tool calling 0.571, knowledge 0.447; see "Checkpoint comparison: granite-5.1-20b" |
 | `567cc0ee` / `18c5342d` | 3b `cd2bfbc2` `final/` | regression after the vLLM-0.30 step changes (inventory, knowledge) | SUCCESS: inventory 0.938 (unchanged), knowledge 0.616 (0.633 before) |
