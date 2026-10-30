@@ -36,7 +36,7 @@ GB_ENVIRONMENT=STANDALONE PATH=$HOME/.local/bin:$PATH .venv/bin/gb build start \
 
 ### granite-4.2-30b checkpoints
 
-Same build, plus the 30b base. gpu-mid shown here (16-GPU cap); see "Which queue" below for
+Same build, plus the 30b base. gpu-mid shown here (48-GPU cap); see "Which queue" below for
 gpu-high and gpu-low:
 
 ```bash
@@ -101,9 +101,9 @@ so set both together:
 
 | Queue | Params | GPU limit for the account | Time limit | Priority / preemption | Use for |
 |---|---|---|---|---|---|
-| **gpu-high** (recipe default) | nothing (= `QUEUE=gpu-high QOS=grp_granite_dot_build_high_1n`) | **8 GPUs** total, i.e. 4 categories at 2 GPUs each | 2 days | highest tier (32768), `REQUEUE` | one eval build, starts fastest |
+| **gpu-high** (recipe default) | nothing (= `QUEUE=gpu-high QOS=grp_granite_dot_build_high_1n`) | **24 GPUs** total, single node per job, i.e. 12 categories at 2 GPUs each | 2 days | highest tier (32768), `REQUEUE` | one eval build, starts fastest |
 | **gpu-low** | `--param QUEUE=gpu-low --param QOS=burst` | **none** (`burst` has no GPU cap) | 30 days (default 1 day; recipe asks 6 h) | lowest tier (5), `REQUEUE`: higher tiers can preempt it | several eval builds in parallel, alongside training |
-| **gpu-mid** | `--param QUEUE=gpu-mid --param QOS=` | **16 GPUs** total (`grp_granite_dot_build_medium`), shared with training | 7 days | middle tier (16384), `REQUEUE` | only when gpu-mid is otherwise idle |
+| **gpu-mid** | `--param QUEUE=gpu-mid --param QOS=` | **48 GPUs** total (`grp_granite_dot_build_medium`), shared with training | 7 days | middle tier (16384), `REQUEUE` | only when gpu-mid is otherwise idle |
 
 **gpu-high** (default, nothing to add):
 
@@ -148,10 +148,14 @@ For the 8b, add `--param BASE_MODEL_PATH=/proj/granite-build/g4os/kd-sandbox/mod
   "Choosing what runs"). Each category is only minutes, so the exposure is small.
 - **`QOS=normal` does not work for this account.** The sbatch line goes through
   (`#SBATCH --qos=normal`), but BlueVela's job-submit plugin rewrites it to the account default,
-  `grp_granite_dot_build_medium`, the same 16-GPU cap as `QOS=` (build `2c467ec4`).
-- **The 16 gpu-mid GPUs are shared account-wide.** A 2-node training run needs all 16, so it can't
-  start while gpu-mid evals hold any, and evals queue (`QOSGrpGRES`) behind it. Run evals on
-  gpu-high or gpu-low while training is on gpu-mid.
+  `grp_granite_dot_build_medium`, the same 48-GPU cap as `QOS=` (build `2c467ec4`).
+- **The 48 gpu-mid GPUs are shared account-wide.** A 2-node training run takes 16 of them, leaving
+  32 (16 categories) for evals; a full 14-category eval build uses 28. Evals beyond the cap queue
+  (`QOSGrpGRES`). The same holds on gpu-high, whose 24 GPUs are shared with a 1-node training run
+  (8 GPUs).
+- **Multi-node jobs can't use gpu-high.** BlueVela moves a multi-node job from
+  `grp_granite_dot_build_high_1n` to `grp_granite_dot_build_high`, which has a 0-GPU cap, so it
+  never starts. Evals are single-node, so this only affects training.
 - **gbserver limits start-ups, not running jobs.** At most 4 categories can be *starting up* at once,
   whatever the queue (`GBSERVER_SKYPILOT_LAUNCH_CONCURRENCY`, default 4). A category holds a slot only
   from `sky.launch` until its SLURM job starts (1–3 min), then frees it for the next. So new eval jobs
@@ -163,7 +167,7 @@ For the 8b, add `--param BASE_MODEL_PATH=/proj/granite-build/g4os/kd-sandbox/mod
 Check which partition and QOS a job got, and why it's waiting:
 
 ```bash
-squeue --me -o "%i %P %q %T %R %j" | grep eval-g42nt     # partition, QOS, state, pending reason
+squeue --me -o "%i %P %q %T %R %j" | grep gb-eval-     # partition, QOS, state, pending reason
 ```
 
 `(QOSGrpGRES)` means the QOS GPU cap is full; `(Priority)` / `(Resources)` mean the partition is busy.
@@ -191,7 +195,7 @@ elsewhere. The model is bf16 safetensors with the adapter's tokenizer and chat t
 # build status (from ~/granite.build, on the gbserver host)
 GB_ENVIRONMENT=STANDALONE .venv/bin/gb build status <build_id> --skip-version-check
 # SLURM jobs for it (on a BlueVela login node); target names are in the job names
-squeue --me -o "%i %P %T %M %j" | grep eval-g42nt
+squeue --me -o "%i %P %T %M %j" | grep gb-eval-<NAME prefix>   # e.g. gb-eval-g51-20b; names are truncated
 # a category's live output
 tail -F /proj/granite-build/g4os/defense/evals/<NAME>/<category>/eval.log
 ```
@@ -273,7 +277,7 @@ Details are in the `defense-eval-slurm` README.
 ## Resources and timing
 
 Each category: 2 × H200, vLLM TP=2, as on Vela. How many **run** at once is limited only by the
-QOS GPU cap (see "Which queue": 4 categories on gpu-high, 8 on gpu-mid, no cap on gpu-low).
+QOS GPU cap (see "Which queue": 12 categories on gpu-high, 24 on gpu-mid, no cap on gpu-low).
 Separately, gbserver lets at most 4 categories **start up** at a time
 (`GBSERVER_SKYPILOT_LAUNCH_CONCURRENCY`, default 4). That only staggers how quickly jobs reach
 SLURM, not how many run. The 12 tool-calling categories take ~6–10 min each on 3b once running,
