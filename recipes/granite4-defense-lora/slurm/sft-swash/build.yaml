@@ -86,6 +86,9 @@ granite.build:
                 # >1 batches the ODM reward pass (padded; training stays padding-free). See the
                 # tuning-slurm step's src/odm_batched_reward.py. 1 = upstream behaviour.
                 ODM_REWARD_BATCH_SIZE: "$${ODM_REWARD_BATCH_SIZE}"
+                # Token positions per slice when reducing the entropy reward over the vocabulary;
+                # bounds the reward's extra memory (the full [B, S, vocab] probs OOM'd, 32dae5df).
+                ODM_REWARD_ENTROPY_CHUNK_TOKENS: "$${ODM_REWARD_ENTROPY_CHUNK_TOKENS}"
             tuning_data_config:
               dataprocessor:
                 type: odm

@@ -58,6 +58,9 @@ RESUME_FROM_CHECKPOINT: "true"
 # 2026-10-29): 2.9x faster reward pass, rewards within ~2e-4 of batch 1. See the tuning-slurm
 # step README.
 ODM_REWARD_BATCH_SIZE: 1
+# Token positions per slice when the batched reward reduces entropy over the vocabulary. 2048:
+# a batch of 8 x 3736-token examples peaked at 27.5 GB (swash-2b) vs 59.9 GB unchunked.
+ODM_REWARD_ENTROPY_CHUNK_TOKENS: 2048
 LEARNING_RATE: "1e-05"
 PER_DEVICE_TRAIN_BATCH_SIZE: 5
 # Effective batch = PER_DEVICE_TRAIN_BATCH_SIZE x GRADIENT_ACCUMULATION_STEPS x NUM_NODES x 8.

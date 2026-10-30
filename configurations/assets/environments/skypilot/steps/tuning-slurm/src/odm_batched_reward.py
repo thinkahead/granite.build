@@ -17,6 +17,9 @@ unchanged. With left padding (the granite tokenizers' default) it would add one 
 computed at a pad position and shift every position id (different RoPE).
 
   ODM_REWARD_BATCH_SIZE=N   batch the reward pass N examples at a time (off when unset/1)
+  ODM_REWARD_ENTROPY_CHUNK_TOKENS=C   reduce the entropy over the vocabulary C token
+                            positions at a time (default 2048), bounding the reward's extra
+                            memory whatever the batch shape
   ODM_VOCAB_SIZE=V          entropy normalization (default: the model's config.vocab_size)
 
 Also replaces the hardcoded vocab_size=32000 with the model's `config.vocab_size`.
@@ -26,6 +29,53 @@ Logs `ODM_BATCHED_REWARD ...` once per rank when active.
 import copy
 import os
 import sys
+
+
+def _chunked_entropy_reward(model, batch, vocab_size: int, reward_type: str) -> float:
+    """Same value as fms_acceleration_odm.odm.reward.compute_reward for the ENTROPY
+    rewards, but never materializes a full [batch, seq, vocab] probability tensor.
+
+    Upstream does log_softmax / exp / p*log p / p*(log p)^2 over all positions at once:
+    several [B, S, V] tensors at V = 100352 (~0.4 MB per token each in fp32), which a
+    padded batch of long examples cannot fit next to the training state (build 32dae5df
+    OOM'd on granite-5.1-20b). Here the model runs once on the whole batch and the entropy
+    terms are reduced over the vocabulary `chunk` positions at a time, so the extra memory
+    is bounded by `chunk` tokens whatever the batch shape. The forward and the number of
+    forwards are the same on every rank, so FSDP collectives stay in lockstep.
+    """
+    # Third Party
+    import torch
+    import torch.nn.functional as F
+
+    chunk = int(os.environ.get("ODM_REWARD_ENTROPY_CHUNK_TOKENS", "2048") or 2048)
+    with torch.inference_mode():
+        logits = model(**batch).logits[:, :-1, :]           # [B, S-1, V], model dtype
+        bsz, slen, _ = logits.shape
+        flat = logits.reshape(bsz * slen, -1)
+        ent = torch.empty(bsz * slen, dtype=torch.float32, device=flat.device)
+        var = torch.empty_like(ent)
+        for i in range(0, flat.shape[0], chunk):
+            lp = F.log_softmax(flat[i:i + chunk].float(), dim=-1)
+            p = lp.exp()
+            e = -(p * lp).sum(-1)
+            ent[i:i + chunk] = e
+            var[i:i + chunk] = (p * lp.pow(2)).sum(-1) - e.pow(2)
+            del lp, p
+        ent = ent.view(bsz, slen)
+        var = var.view(bsz, slen)
+        last = ent[:, -1]
+        mask = batch["attention_mask"][:, 1:].to(ent.dtype)
+        ent = (ent * mask).sum(-1) / mask.sum(-1)
+        var = (var * mask).sum(-1) / mask.sum(-1)
+    max_ent = torch.log(torch.tensor(float(vocab_size), dtype=ent.dtype, device=ent.device))
+    ent = (ent / max_ent).clamp(0.0, 1.0)
+    var = (var / max_ent ** 2).clamp(0.0, 1.0)
+    last = (last / max_ent).clamp(0.0, 1.0)
+    if reward_type == "entropy3_varent1":
+        return 0.75 * ent.sum().item() + 0.25 * var.sum().item()
+    if reward_type == "entropy_last_token":
+        return last.sum().item()
+    return ent.sum().item()
 
 
 def _install() -> None:
@@ -57,7 +107,9 @@ def _install() -> None:
             self.eval_batch_size = bs
             self._odm_padded = True
             print(f"ODM_BATCHED_REWARD rank={os.environ.get('RANK', '0')} "
-                  f"eval_batch_size={bs} categories={len(padded)}", file=sys.stderr, flush=True)
+                  f"eval_batch_size={bs} entropy_chunk_tokens="
+                  f"{os.environ.get('ODM_REWARD_ENTROPY_CHUNK_TOKENS', '2048')} categories={len(padded)}",
+                  file=sys.stderr, flush=True)
         return orig_reset(self)
 
     def compute_reward(model, batch, vocab_size, reward_type, **kw):
@@ -67,10 +119,11 @@ def _install() -> None:
         else:
             cfg = getattr(getattr(model, "module", model), "config", None)
             vocab_size = getattr(cfg, "vocab_size", None) or vocab_size
-        if batch is not None and "labels" in batch:
-            batch = {k: t for k, t in batch.items() if k != "labels"}
-        return orig_reward(model=model, batch=batch, vocab_size=vocab_size,
-                           reward_type=reward_type, **kw)
+        if batch is None or not str(reward_type).lower().startswith("entropy"):
+            return orig_reward(model=model, batch=batch, vocab_size=vocab_size,
+                               reward_type=reward_type, **kw)
+        batch = {k: t for k, t in batch.items() if k != "labels"}
+        return _chunked_entropy_reward(model, batch, vocab_size, str(reward_type).lower())
 
     ds.OnlineMixingDataset._reset_eval_dataloaders = _reset_eval_dataloaders
     rw.compute_reward = compute_reward

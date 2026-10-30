@@ -183,6 +183,19 @@ layer, bf16, flex attention, granite-5.1-20b `-eager`, 120 validation examples p
 Differences are bf16 rounding (~0.2% of the reward). Peak memory at bs8: 54 GB per GPU. The
 speedup varies with how much example lengths differ within a batch (padding). On 8 GPUs each
 forward also gathers more shards, which batching amortizes, so expect at least this much there.
+**Memory: the entropy is reduced in chunks.** Upstream `compute_reward` builds several
+`[batch, seq, vocab]` fp32 tensors at once (log_softmax, probs, p·log p, p·(log p)²). Next to the
+granite-5.1-20b training state, a padded batch of 8 long examples OOM'd at step 500 (build
+`32dae5df`, 16 GB allocation with 5 GB free). `odm_batched_reward.py` runs the model once per batch
+and reduces the entropy terms over the vocabulary `ODM_REWARD_ENTROPY_CHUNK_TOKENS` positions at a
+time (default 2048), in fp32. Single GPU, swash-2b, 8 × 3736-token examples: identical to upstream
+to 1.6e-4 per example (upstream rounds its result to bf16), peak 27.5 GB vs 33.3 GB upstream and
+59.9 GB unchunked. On the 20b (build `6b75f47f`, 25 steps, reward pass at step 20) all 12
+categories fit and finished in ~38 min, ~25 of them in the one long category. A first attempt
+that instead split long batches into token-capped sub-batches gave ranks different numbers of
+forwards for the same category and hung FSDP at the end of the pass (build `67ba3cdd`); the
+chunked version always runs one forward per batch on every rank.
+
 `tests/odm_pad_equiv.py` is the single-GPU exactness check (swash-2b, 96 examples, bs1 vs right-
 and left-padded bs8). `tests/odm_reward_fsdp.sbatch` reruns the FSDP test; it needs
 `--container-writable` so the stale-torch-2.7 cleanup can delete files.
