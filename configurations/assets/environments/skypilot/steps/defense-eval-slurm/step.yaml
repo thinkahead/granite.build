@@ -171,6 +171,27 @@ environment_configs:
               exit 1
             fi
 
+            # ── GPU visibility diagnostic (one block per job, in the run log) ──
+            # ~11% of eval jobs saw only 1 of their 2 allocated GPUs inside the container and
+            # vLLM refused to start ("World size (2) is larger than the number of available GPUs
+            # (1)"). Record what this job's container actually sees so a failure can be traced:
+            # SLURM's view, CUDA/NVIDIA env, the /dev/nvidia* nodes present, the device cgroup
+            # allow-list (v1) or the cgroup path (v2), and nvidia-smi's list.
+            {
+              echo "defense-eval: gpu-diag host=$(hostname -s) job=${SLURM_JOB_ID:-?} step=${SLURM_STEP_ID:-?}"
+              echo "defense-eval: gpu-diag SLURM_JOB_GPUS=${SLURM_JOB_GPUS:-} SLURM_STEP_GPUS=${SLURM_STEP_GPUS:-} SLURM_GPUS_ON_NODE=${SLURM_GPUS_ON_NODE:-}"
+              echo "defense-eval: gpu-diag CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-<unset>} NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-<unset>}"
+              echo "defense-eval: gpu-diag /dev: $(ls /dev/nvidia[0-9]* 2>/dev/null | tr '\n' ' ')"
+              echo "defense-eval: gpu-diag cgroup: $(head -c 300 /proc/self/cgroup 2>/dev/null | tr '\n' ' ')"
+              if [ -r /sys/fs/cgroup/devices/devices.list ]; then
+                echo "defense-eval: gpu-diag devices.list: $(grep -E '^c 195:' /sys/fs/cgroup/devices/devices.list | tr '\n' ' ')"
+              fi
+              echo "defense-eval: gpu-diag nvidia-smi -L:"
+              nvidia-smi -L 2>&1 | sed 's/^/defense-eval: gpu-diag   /'
+              NGPU_SEEN=$(nvidia-smi -L 2>/dev/null | grep -c '^GPU ')
+              echo "defense-eval: gpu-diag visible=${NGPU_SEEN} expected=${NUM_GPUS_PER_NODE:-{{ config.compute_config.num_gpus_per_node }}}"
+            } 2>&1 | tee "$OUTPUT_PATH/gpu_diag.txt"
+
             cd "$CODE_DIR"
             EVAL_LOG="$OUTPUT_PATH/eval.log"
             # vLLM start-up retry: ~11% of category jobs (2026-10-30/31, 15 different nodes, mostly
@@ -204,7 +225,11 @@ environment_configs:
             wait "$EVAL_PID"; RC=$?
             set -e
             echo "defense-eval: eval exit code $RC (attempt $ATTEMPT)"
-            if [ "$RC" != "0" ] && [ ! -s "$OUTPUT_PATH/result.jsonl" ] \
+            # A container that sees fewer GPUs than allocated stays that way for the whole job, so
+            # retrying here cannot help; fail at once and let the build-level retry get a new job.
+            if grep -aq "is larger than the number of available GPUs" "$EVAL_LOG"; then
+              echo "defense-eval: container sees ${NGPU_SEEN:-?} GPU(s), job allocated more; not retrying in this job (see gpu_diag.txt)" >&2
+            elif [ "$RC" != "0" ] && [ ! -s "$OUTPUT_PATH/result.jsonl" ] \
                && ! grep -aq "Model loading took" "$EVAL_LOG" \
                && [ "$ATTEMPT" -le "$STARTUP_RETRIES" ]; then
               cp -f "$EVAL_LOG" "$EVAL_LOG.attempt$ATTEMPT"

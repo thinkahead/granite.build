@@ -70,6 +70,17 @@ in the same job:
 If every attempt fails, the job fails and the build-level retry (`MAX_RETRIES` in the recipe) launches it again,
 usually on another node.
 
+**Root cause of most start-up failures: the container sees 1 of the 2 allocated GPUs.** With the traceback print the
+error is `World size (2) is larger than the number of available GPUs (1) in this node`. SLURM allocated 2 GPUs and
+`CUDA_VISIBLE_DEVICES=0,1`, but `nvidia-smi` inside the container lists one. In the `~/sky_logs` run logs every such
+failure printed 1 GPU, and 131 of 142 successes printed 2. The container keeps that view for the whole job, so the run script **does not
+retry this error in the job**: it fails at once and the build-level retry starts a new job, which usually gets both.
+
+**GPU diagnostic.** Every job writes `gpu_diag.txt` next to `eval.log` (and prints it to the run log): SLURM's GPU
+env, `CUDA_VISIBLE_DEVICES` / `NVIDIA_VISIBLE_DEVICES`, the `/dev/nvidia*` device nodes present in the container, the
+cgroup path (and the v1 device allow-list if present), and `nvidia-smi -L`. Compare a failed job's file with a
+good one's to see which GPU is missing and where it went.
+
 ## Requirements
 
 - **GHE token.** fm-eval is private. The step maps the secret `GITHUB_IBM_PAT` to
