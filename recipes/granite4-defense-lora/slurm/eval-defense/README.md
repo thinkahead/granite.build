@@ -574,51 +574,54 @@ sandbox restart, a job cancelled before its result was copied, and one eval erro
 Results: `/proj/granite-build/g4os/defense/evals/eval_swash_2b_d6c461b2_<step>/<category>/` and
 `/proj/granite-build/g4os/defense/evals/eval_g51_20b_base/<category>/`.
 
-## Checkpoint comparison: granite-5.1-20b full fine-tune (`57227516`, in progress)
+## Checkpoint comparison: granite-5.1-20b full fine-tune (`57227516`)
 
-MoE granite-5.1-20b (`-eager` experts), same recipe and data as swash-3b/2b
+**Complete (2026-10-31).** MoE granite-5.1-20b (`-eager` experts), same recipe and data as swash-3b/2b
 ([`sft-swash`](../sft-swash/README.md), `train.sh g51-20b`): batch 4 per GPU, LR 1e-5, 5000 steps on
 one gpu-high node, eval/ODM every 500 steps with the batched, chunked-entropy reward pass
-(`ODM_REWARD_BATCH_SIZE=8`). All 14 categories, gpu-mid, swash eval image.
+(`ODM_REWARD_BATCH_SIZE=8`). 5000 steps in 16h03m, average training loss 5.99. All 14 categories,
+gpu-mid, swash eval image. **Bold** = best `57227516` checkpoint.
 The earlier run `1e20c15f` (eval/ODM every 250 steps, unbatched reward pass, stopped after
 checkpoint-2000) is alongside.
 
-| Category | untrained | `1e20c15f` 500 | 1000 | 2000 | `57227516` 500 | 1000 | 2000 | 3000 | 4000 |
-|---|---|---|---|---|---|---|---|---|---|
-| router | 0.713 | 0.822 | 0.842 | 0.886 | 0.833 | 0.831 | 0.893 | 0.920 | 0.942 |
-| inventory | 0.127 | 0.590 | 0.655 | 0.768 | 0.633 | 0.693 | 0.814 | 0.907 | 0.936 |
-| nonstategroups | 0.007 | 0.763 | 0.776 | 0.814 | 0.692 | 0.761 | 0.800 | 0.857 | 0.887 |
-| news | 0.000 | 0.536 | 0.588 | 0.697 | 0.556 | 0.575 | 0.699 | 0.784 | 0.817 |
-| profiles | 0.000 | 0.720 | 0.684 | 0.675 | 0.735 | 0.631 | 0.709 | 0.669 | 0.738 |
-| military | 0.000 | 0.534 | 0.572 | 0.624 | 0.503 | 0.576 | 0.618 | 0.702 | 0.766 |
-| analysis | 0.000 | 0.538 | 0.654 | 0.695 | 0.543 | 0.668 | 0.694 | 0.730 | 0.763 |
-| organization | 0.003 | 0.592 | 0.603 | 0.624 | 0.588 | 0.585 | 0.641 | 0.696 | 0.703 |
-| installations | 0.012 | 0.488 | 0.566 | 0.611 | 0.533 | 0.533 | 0.575 | 0.639 | 0.688 |
-| ships | 0.014 | 0.625 | 0.653 | 0.640 | 0.602 | 0.603 | 0.662 | 0.665 | 0.666 |
-| equipment | 0.019 | 0.548 | 0.492 | 0.513 | 0.462 | 0.443 | 0.535 | 0.495 | 0.532 |
-| events | 0.001 | 0.200 | 0.155 | 0.225 | 0.174 | 0.191 | 0.228 | 0.210 | 0.208 |
-| knowledge | 0.686 | 0.529 | 0.530 | 0.571 | 0.519 | 0.539 | 0.520 | 0.533 | 0.562 |
-| knowledge_with_tools | 0.769 | 0.424 | 0.447 | 0.410 | 0.375 | 0.416 | 0.392 | 0.366 | 0.407 |
-| **Mean, 12 tool-calling** | 0.075 | 0.580 | 0.603 | 0.648 | 0.571 | 0.591 | 0.656 | 0.690 | 0.721 |
-| **Mean, 2 knowledge** | 0.728 | 0.477 | 0.489 | 0.490 | 0.447 | 0.478 | 0.456 | 0.450 | 0.485 |
-| **Mean, all 14** | 0.168 | 0.565 | 0.587 | 0.625 | 0.553 | 0.575 | 0.627 | 0.655 | 0.687 |
+| Category | untrained | `1e20c15f` 500 | 1000 | 2000 | `57227516` 500 | 1000 | 2000 | 3000 | 4000 | 5000 (= final) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| router | 0.713 | 0.822 | 0.842 | 0.886 | 0.833 | 0.831 | 0.893 | 0.920 | 0.942 | **0.943** |
+| inventory | 0.127 | 0.590 | 0.655 | 0.768 | 0.633 | 0.693 | 0.814 | 0.907 | **0.936** | 0.931 |
+| nonstategroups | 0.007 | 0.763 | 0.776 | 0.814 | 0.692 | 0.761 | 0.800 | 0.857 | 0.887 | **0.896** |
+| news | 0.000 | 0.536 | 0.588 | 0.697 | 0.556 | 0.575 | 0.699 | 0.784 | **0.817** | 0.814 |
+| profiles | 0.000 | 0.720 | 0.684 | 0.675 | 0.735 | 0.631 | 0.709 | 0.669 | **0.738** | 0.729 |
+| military | 0.000 | 0.534 | 0.572 | 0.624 | 0.503 | 0.576 | 0.618 | 0.702 | **0.766** | 0.766 |
+| analysis | 0.000 | 0.538 | 0.654 | 0.695 | 0.543 | 0.668 | 0.694 | 0.730 | **0.763** | 0.759 |
+| organization | 0.003 | 0.592 | 0.603 | 0.624 | 0.588 | 0.585 | 0.641 | 0.696 | **0.703** | 0.694 |
+| installations | 0.012 | 0.488 | 0.566 | 0.611 | 0.533 | 0.533 | 0.575 | 0.639 | **0.688** | 0.688 |
+| ships | 0.014 | 0.625 | 0.653 | 0.640 | 0.602 | 0.603 | 0.662 | 0.665 | 0.666 | **0.673** |
+| equipment | 0.019 | 0.548 | 0.492 | 0.513 | 0.462 | 0.443 | **0.535** | 0.495 | 0.532 | 0.516 |
+| events | 0.001 | 0.200 | 0.155 | 0.225 | 0.174 | 0.191 | **0.228** | 0.210 | 0.208 | 0.208 |
+| knowledge | 0.686 | 0.529 | 0.530 | 0.571 | 0.519 | 0.539 | 0.520 | 0.533 | 0.562 | **0.567** |
+| knowledge_with_tools | 0.769 | 0.424 | 0.447 | 0.410 | 0.375 | **0.416** | 0.392 | 0.366 | 0.407 | 0.392 |
+| **Mean, 12 tool-calling** | 0.075 | 0.580 | 0.603 | 0.648 | 0.571 | 0.591 | 0.656 | 0.690 | **0.721** | 0.718 |
+| **Mean, 2 knowledge** | 0.728 | 0.477 | 0.489 | 0.490 | 0.447 | 0.478 | 0.456 | 0.450 | **0.485** | 0.479 |
+| **Mean, all 14** | 0.168 | 0.565 | 0.587 | 0.625 | 0.553 | 0.575 | 0.627 | 0.655 | **0.687** | 0.684 |
 
-**Reading it (steps 500–4000):**
+**Reading it:**
 
-- **Tool calling: 0.075 → 0.571 (500) → 0.591 (1000) → 0.656 (2000) → 0.690 (3000) → 0.721 (4000).**
-  It trailed the first run by ~0.01 at 500 and 1000 and was slightly ahead at 2000 (0.656 vs 0.648;
-  the first run stopped there). It is still climbing at 4000, by ~0.03 per 1000 steps. Swash-2b was
-  at 0.728 at step 4000 and 0.731 final; swash-3b 0.732 at 4000.
-- **Every category but events and ships improves from 3000 to 4000**, most by 0.03–0.07 (profiles
-  0.669 → 0.738, military 0.702 → 0.766). Router (0.942) and inventory (0.936) are at swash-2b's
-  final level. Equipment (0.532) is the weak category throughout, as on swash-2b.
-- **Knowledge drops from 0.728 to ~0.45 and starts to recover at 4000** (0.447, 0.478, 0.456, 0.450,
-  0.485; first run 0.477–0.490), the best since step 0, both knowledge and knowledge_with_tools up.
-- The two runs differ in ODM update interval (500 vs 250 steps), so the data mix is re-weighted
-  half as often here; at 2000 steps that makes no measurable difference to tool calling.
+- **Tool calling: 0.075 → 0.571 (500) → 0.591 (1000) → 0.656 (2000) → 0.690 (3000) → 0.721 (4000) →
+  0.718 (5000).** It climbs ~0.03 per 1000 steps up to 4000, then levels off, as swash-3b and
+  swash-2b did. It trailed the first run by ~0.01 at 500 and 1000 and was slightly ahead at 2000
+  (0.656 vs 0.648; the first run stopped there), so the ODM update interval (500 vs 250 steps) makes
+  no measurable difference.
+- **It ends level with the swash models, not above them:** 0.721 at 4000 vs 0.731 for swash-2b and
+  swash-3b at step 5000, with ~10× swash-2b's parameters. Router (0.943) and inventory (0.936) match
+  them; equipment (0.53) and events (0.21) are the weak categories, as on swash-2b.
+- **Knowledge: 0.728 untrained → ~0.45 at 500–3000 → 0.485 at 4000, 0.480 at 5000.** That is above
+  swash-2b's best (0.474) but far below the untrained model: fine-tuning on tool-calling data costs
+  much of the knowledge it started with.
+- **Recommendation:** checkpoint-4000 (best tool-calling, knowledge and all-14 means: 0.721 / 0.485 /
+  0.687); `final/` is within 0.004 on all three.
 
 Builds (gpu-mid): `1845669d` (500), `f8d7be67` (1000; equipment ran on the third attempt, the first
-two were cancelled on the cluster while vLLM was loading), `bd724dd8` (2000), `f9a1137a` (3000), `9a7fed4a` (4000).
+two were cancelled on the cluster while vLLM was loading), `bd724dd8` (2000), `f9a1137a` (3000), `9a7fed4a` (4000), `7c6b008a` (5000).
 Results: `/proj/granite-build/g4os/defense/evals/eval_g51_20b_57227516_<step>/<category>/` and
 `eval_g51_20b_1e20c15f_<step>/`.
 
@@ -639,4 +642,5 @@ Results: `/proj/granite-build/g4os/defense/evals/eval_g51_20b_57227516_<step>/<c
 | `bd724dd8` | granite-5.1-20b `57227516` checkpoint-2000 | `MODEL_PATH` + swash image, 14 categories | SUCCESS: tool calling 0.656, knowledge 0.456 |
 | `f9a1137a` | granite-5.1-20b `57227516` checkpoint-3000 | `MODEL_PATH` + swash image, 14 categories | SUCCESS: tool calling 0.690, knowledge 0.450 |
 | `9a7fed4a` | granite-5.1-20b `57227516` checkpoint-4000 | `MODEL_PATH` + swash image, 14 categories | SUCCESS: tool calling 0.721, knowledge 0.485 |
+| `7c6b008a` | granite-5.1-20b `57227516` checkpoint-5000 (= final) | `MODEL_PATH` + swash image, 14 categories | SUCCESS: tool calling 0.718, knowledge 0.480 |
 | `567cc0ee` / `18c5342d` | 3b `cd2bfbc2` `final/` | regression after the vLLM-0.30 step changes (inventory, knowledge) | SUCCESS: inventory 0.938 (unchanged), knowledge 0.616 (0.633 before) |

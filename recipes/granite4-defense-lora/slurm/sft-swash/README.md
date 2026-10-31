@@ -128,7 +128,15 @@ Time for 5000 steps at 5.2 s/step: ~7.2 h of training, plus data preparation (~3
 eval/ODM passes. Peak GPU memory was close to full (up to ~140 GB of 141 GB on one GPU, 80–140 GB
 across the 8), so batch 4 is the most that fits.
 
-Full run: build `1e20c15f`. Baseline (untrained) eval: `NAME=eval_g51_20b_base` (builds `ef8da6f6` +
+**Full run: build `57227516`** (2026-10-30/31, complete): 5000 steps on one gpu-high node, eval/ODM
+every 500 steps with the batched, chunked-entropy reward pass (`ODM_REWARD_BATCH_SIZE=8`), full
+checkpoints. 16h03m end to end: ~7.5 h of training at ~5.3 s/step plus ten ~30–48 min eval/ODM
+passes. Best checkpoint: `checkpoint-4000` (tool calling 0.721, knowledge 0.485); scores in the
+[eval README](../eval-defense/README.md#checkpoint-comparison-granite-51-20b-full-fine-tune-57227516).
+Outputs: `/proj/granite-build/g4os/defense/runs/57227516-0507-46a7-bb5d-6fa04d6afd74/sft_g51_20b_v2_odm_90_10_entropy_xml/`.
+An earlier run, `1e20c15f` (eval/ODM every 250 steps, unbatched), was stopped after checkpoint-2000.
+
+Baseline (untrained) eval: `NAME=eval_g51_20b_base` (builds `ef8da6f6` +
 rerun `ddeb9af7`), `MODEL_PATH` = the original (non-eager) model dir; vLLM doesn't read
 `_experts_implementation`.
 
