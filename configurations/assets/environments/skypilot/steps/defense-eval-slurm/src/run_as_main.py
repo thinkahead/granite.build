@@ -18,17 +18,35 @@ initialized, so VLLM_WORKER_MULTIPROC_METHOD=fork no longer avoids it.
 
 sys.argv[0] and __file__ are the script in both cases, so Path(__file__)-relative lookups
 in it still resolve.
+
+Tracebacks: the eval scripts end in a `finally:` that reaps vLLM's workers and calls
+os._exit(), which ends the process before Python prints the propagating exception, so a
+failed eval logged only "exit code 1". os._exit is wrapped here to print the in-flight
+exception (if any) first, then exit with the same code.
 """
 
 import os
 import re
 import runpy
 import sys
+import traceback
 
 GUARD = re.compile(r"""^if\s+__name__\s*==\s*["']__main__["']\s*:""", re.M)
 
+_real_exit = os._exit
+
+
+def _exit_with_traceback(code: int) -> None:
+    exc = sys.exc_info()
+    if exc[0] is not None:
+        print("defense-eval: exception at exit (printed before os._exit):", file=sys.stderr)
+        traceback.print_exception(*exc, file=sys.stderr)
+        sys.stderr.flush()
+    _real_exit(code)
+
 
 def main() -> None:
+    os._exit = _exit_with_traceback
     script = os.path.abspath(sys.argv[1])
     sys.argv = [script] + sys.argv[2:]
     sys.path.insert(0, os.path.dirname(script))

@@ -317,7 +317,7 @@ Hence the Ubuntu 6mar2026 image.
 | `Unexpected keyword argument 'best_of'` | unitxt passes every engine field to `SamplingParams`; `src/patch_unitxt_vllm.py` keeps only fields vLLM declares |
 | `User-specified max_model_len (32768) is greater than the derived max_model_len (8192)` | same patch caps unitxt's hardcoded 32768 at the model's `max_position_embeddings` (prompts are ~1k tokens) |
 | knowledge scripts abort: "start a new process before the current process has finished its bootstrapping phase" | they run at module level and vLLM 0.30 forces `spawn` once CUDA is up; every eval script now runs via `src/run_as_main.py`, so the spawn child doesn't re-run it |
-| eval failures leave no traceback in `eval.log` | the scripts' `finally` hard-exits before the exception prints; reproduce by hand with an `except: traceback.print_exc()` before the `finally` |
+| eval failures leave no traceback in `eval.log` | the scripts' `finally` hard-exits before the exception prints; `src/run_as_main.py` now wraps `os._exit` to print it first (2026-10-31) |
 
 The two unitxt fixes and the wrapper are no-ops on the vLLM 0.11 image the 4.2 evals use (all
 `SamplingParams` fields accepted; 4.2 models allow ≥ 32768; scripts with a `__main__` guard run as

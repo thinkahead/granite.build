@@ -47,6 +47,29 @@ unmodified fm-eval path.
 retry, the `defense_knowledge` format/metric seds, the `base_model_inference.py` copy,
 and the fused-MoE A100 config copy.
 
+## Failure handling
+
+**Tracebacks.** The eval scripts end in a `finally:` that reaps vLLM's workers and calls `os._exit()`, which
+used to end the process before Python printed the exception, so a failed eval logged only `eval exit code 1`.
+`src/run_as_main.py` now wraps `os._exit` to print the in-flight exception to `eval.log` first. The exit code
+is unchanged.
+
+**vLLM start-up retry (in the job).** About 11% of category jobs on 2026-10-30/31 (granite-4.0 nano evals, swash
+image) died with exit 1 right after vLLM's `Using max model len`, before any worker loaded the model. They were
+spread over 15 different nodes, mostly alone on the node, and those nodes ran other categories fine minutes
+before or after, so it is a transient start-up fault, not a bad node. The run script now retries such a failure
+in the same job:
+
+| | |
+|---|---|
+| Retried when | exit ≠ 0, no `result.jsonl`, and `eval.log` has no `Model loading took` (vLLM never reached model load) |
+| Not retried | any failure after model load (a real eval or metric error); it fails the job as before |
+| How many / pause | `eval_config.startup_retries` (default 3) / `eval_config.startup_retry_sleep_seconds` (default 60) |
+| Logs | each failed attempt is kept as `eval.log.attempt<N>`; `eval.log` is the latest attempt |
+
+If every attempt fails, the job fails and the build-level retry (`MAX_RETRIES` in the recipe) launches it again,
+usually on another node.
+
 ## Requirements
 
 - **GHE token.** fm-eval is private. The step maps the secret `GITHUB_IBM_PAT` to

@@ -41,6 +41,10 @@ config:
     top_p: 1.0
     # Extra env vars for the eval script (e.g. MAX_SAMPLES, DUMP_PREDICTIONS, DUMP_TAG).
     extra_env: {}
+    # In-job retries when vLLM dies before loading the model (exit 1, no "Model loading took"),
+    # with a pause between attempts. 0 => fail the job on the first such error.
+    startup_retries: 3
+    startup_retry_sleep_seconds: 60
   # Optional extra DATA_PATH root searched first for Lakehouse-named tables (the
   # knowledge evals' knowledge_{validation,test}_set). Accepts <root>/<name>/<name>.parquet
   # or <root>/<name>/<split>.parquet. EMPTY => only data_path.
@@ -169,6 +173,16 @@ environment_configs:
 
             cd "$CODE_DIR"
             EVAL_LOG="$OUTPUT_PATH/eval.log"
+            # vLLM start-up retry: ~11% of category jobs (2026-10-30/31, 15 different nodes, mostly
+            # alone on the node) exited 1 right after "Using max model len", before any worker
+            # loaded the model, and the same node ran other categories fine minutes later. Such a
+            # failure is retried here after a pause instead of failing the job. A failure after
+            # "Model loading took" (a real eval error) is not retried. Each attempt's log is kept as
+            # eval.log.attempt<N>; eval.log is always the latest attempt.
+            STARTUP_RETRIES={{ config.eval_config.startup_retries | default(3) }}
+            STARTUP_RETRY_SLEEP={{ config.eval_config.startup_retry_sleep_seconds | default(60) }}
+            ATTEMPT=1
+            while true; do
             set +e
             env \
               {% for k, v in (config.eval_config.extra_env or {}).items() %}{{ k }}="{{ v }}" {% endfor %}\
@@ -189,7 +203,18 @@ environment_configs:
             tail -n +1 -F --pid="$EVAL_PID" "$EVAL_LOG" 2>/dev/null || true
             wait "$EVAL_PID"; RC=$?
             set -e
-            echo "defense-eval: eval exit code $RC"
+            echo "defense-eval: eval exit code $RC (attempt $ATTEMPT)"
+            if [ "$RC" != "0" ] && [ ! -s "$OUTPUT_PATH/result.jsonl" ] \
+               && ! grep -aq "Model loading took" "$EVAL_LOG" \
+               && [ "$ATTEMPT" -le "$STARTUP_RETRIES" ]; then
+              cp -f "$EVAL_LOG" "$EVAL_LOG.attempt$ATTEMPT"
+              echo "defense-eval: vLLM failed before model load; retry $ATTEMPT/$STARTUP_RETRIES in ${STARTUP_RETRY_SLEEP}s on $(hostname -s)" >&2
+              sleep "$STARTUP_RETRY_SLEEP"
+              ATTEMPT=$((ATTEMPT + 1))
+              continue
+            fi
+            break
+            done
             if [ "$RC" != "0" ] || [ ! -s "$OUTPUT_PATH/result.jsonl" ]; then
               echo "defense-eval: FATAL: eval failed or wrote no result.jsonl (log: $EVAL_LOG)" >&2
               exit 1
