@@ -132,11 +132,26 @@ environment_configs:
               printf '#!/bin/sh\ncase "$1" in Username*) printf %%s x-access-token ;; *) printf %%s "$GB_EVAL_TOKEN" ;; esac\n' > "$ASKPASS"
               chmod 700 "$ASKPASS"
               GB_EVAL_TOKEN="$TOKEN" GIT_ASKPASS="$ASKPASS" GIT_TERMINAL_PROMPT=0 \
-                git clone --quiet --depth 1 -b "$REF" "https://$REPO.git" "$CODE_DIR"
+                git clone --quiet --depth 1 -b "$REF" "https://$REPO.git" "$CODE_DIR" || CLONE_FAILED=1
               rm -f "$ASKPASS"
             else
-              echo "defense-eval: FATAL: no GHE token (GB_SDK_GIT_PAT) to clone private $REPO" >&2
-              exit 1
+              CLONE_FAILED=1
+              echo "defense-eval: no GHE token (GB_SDK_GIT_PAT) to clone private $REPO" >&2
+            fi
+            # Fallback when github.ibm.com is unreachable (2026-11-07: TLS handshake reset from BlueVela):
+            # copy a git snapshot staged on /proj (FM_EVAL_LOCAL_DIR, default below; refresh it with
+            # `git clone --mirror`/`rsync` of a local checkout). It must be on the same ref; the commit is
+            # logged either way so results stay traceable.
+            if [ "${CLONE_FAILED:-0}" = 1 ]; then
+              LOCAL_SRC="${FM_EVAL_LOCAL_DIR:-/proj/granite-build/g4os/defense/fm-eval-snapshot}"
+              if [ -d "$LOCAL_SRC/.git" ]; then
+                rm -rf "$CODE_DIR"
+                git clone --quiet --no-hardlinks -b "$REF" "$LOCAL_SRC" "$CODE_DIR" || cp -a "$LOCAL_SRC" "$CODE_DIR"
+                echo "defense-eval: WARNING: clone of $REPO failed; using local snapshot $LOCAL_SRC"
+              else
+                echo "defense-eval: FATAL: could not clone $REPO and no local snapshot at $LOCAL_SRC" >&2
+                exit 1
+              fi
             fi
             CODE_SHA="$(git -C "$CODE_DIR" rev-parse HEAD)"
             echo "GB_STEP_METADATA_KEY:fm_eval_commit GB_STEP_METADATA_VALUE:$CODE_SHA"
